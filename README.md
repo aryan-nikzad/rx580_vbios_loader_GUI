@@ -38,7 +38,32 @@ rx580_vbios_loader_git/
 └── ...
 ```
 
-### 3. Add your own vBIOS
+### 3. Using the provided RX 580 dumps
+
+If you do not have your own ROM yet, you can use the dumps published in the companion repository:
+
+- [RX 580 SPI vBIOS Dumps](https://github.com/aryan-nikzad/rx580_dumps)
+
+The repository contains XFX RX 580 SPI dumps and a Gigabyte RX 580 dump that has also been tested with an XFX RX 580 in this project.
+
+You can download individual ROM files, or simply download the repository's **`vbioses/`** folder and place that folder directly in the project root, next to `install_linux.sh`.
+
+The resulting layout should look like:
+
+```text
+rx580_vbios_loader_GUI/
+├── vbioses/
+│   ├── ... .rom
+│   └── ... .rom
+├── install_linux.sh
+└── ...
+```
+
+The installer will copy the `vbioses/` folder to the EFI System Partition together with the loader.
+
+**Compatibility warning:** these are vendor firmware dumps, not universal RX 580 ROMs. Prefer your own original full SPI dump when available, and verify board, VRAM, memory configuration, subsystem ID, and other hardware details before using a ROM on a different card.
+
+### 4. Add your own vBIOS
 
 Copy one or more `.rom` vBIOS files into the `vbioses/` folder. The installer copies this folder to the EFI partition automatically.
 
