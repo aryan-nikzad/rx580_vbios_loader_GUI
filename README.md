@@ -8,13 +8,13 @@ The loader uses your own ROM files during early UEFI boot, initializes the GPUs,
 
 ## Preview
 
-### Settings
-
-![RX 580 vBIOS Loader settings](screenshots/preview_settings.png)
-
 ### Status
 
 ![RX 580 vBIOS Loader status](screenshots/preview_status_page.png)
+
+### Settings
+
+![RX 580 vBIOS Loader settings](screenshots/preview_settings.png)
 
 ## Quick Setup
 
