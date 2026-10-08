@@ -1428,6 +1428,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
       if (status_page(image, TRUE, wait) != ACT_START) break;
     }
   }
+  if (CFG(S_BOOT_DELAY) > 0) {
+    for (INTN left = CFG(S_BOOT_DELAY); left > 0; left--) {
+      CHAR16 foot[120];
+      SPrint(foot, sizeof foot, L"Continuing to OS boot in %d s", (int)left);
+      ui_draw_status((UINTN)-1, foot);
+      FW(BS->Stall, 1000000);
+    }
+  }
   ui_end();
   return EFI_SUCCESS;
 }
