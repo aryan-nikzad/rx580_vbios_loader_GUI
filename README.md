@@ -177,6 +177,14 @@ card.06:00.0.rom=01_gigabyte.rom
 
 The PCI address must match the address shown by the loader.
 
+### Force initialization of an already-green card
+
+By default, the loader leaves a card untouched when it detects that the GPU is already initialized and memory-trained. If you need to deliberately run AtomBIOS initialization anyway, select the card and press **F**. This setting is saved per PCI address in UEFI NVRAM, so it remains enabled on later boots.
+
+The same setting can be written in the configuration file as `card.03:00.0.force=1`. **Force initialization is an advanced option:** re-initializing an already-working Polaris GPU can hang or corrupt its state if the ROM is incompatible.
+
+Press **F** again to return to normal green-card detection. **X** disables a card; enabling force initialization automatically clears the disabled state.
+
 ### If you want to stop using a pinned ROM
 
 Open the card page and use **U** to unpin the card.
@@ -196,6 +204,7 @@ The loader can then use its normal ROM selection order again.
 | **L** | View the log |
 | **D** | Dump registers |
 | **X** | Disable / enable the selected card |
+| **F** | Force initialization / normal green-card detection |
 | **R** | Forget remembered ROMs and per-ROM results |
 | **ESC** | Skip the loader before the run |
 
