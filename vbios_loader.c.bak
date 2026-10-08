@@ -353,7 +353,7 @@ extern unsigned long atom_now_ms(void);
  * chip. With a dead chip nothing arrives and the MC never trains, so we do the hardware's job from the ROM file. */
 static UINT32 g_smc_idx1;
 static const UINT8 *g_mc_fallback; static UINTN g_mc_fallback_sz; static INTN g_mc_fallback_off;
-static void mmio_w(UINT32 reg, UINT32 v) { UINT64 o = (UINT64)reg * 4; if (g_mmio && o + 4 <= 0x40000) *(volatile UINT32 *)(UINTN)(g_mmio + o) = v; }
+static void mmio_w(UINT32 reg, UINT32 v) { UINT64 o = (UINT64)reg; if (g_mmio && o + 4 <= 0x40000) *(volatile UINT32 *)(UINTN)(g_mmio + o) = v; }
 static BOOLEAN mc_block_ok(const UINT8 *full, UINTN fullsz, UINT32 off)
 {
   if (!full || (UINTN)off + 16 > fullsz) return FALSE;
@@ -400,34 +400,32 @@ static void find_mc_fallback(void)
  *      reg 0xC0E8 = byte count (0x7E1C)  -> a hardware copy engine streams the microcode body ROM -> MC_SEQ_SUP_PGM
  *   4. MC_SEQ_SUP_CNTL = 8, 4, 1 starts the sequencer.
  * With a dead chip steps 2 and 3 move garbage. We serve both from the ROM file instead. */
-static UINT8 *g_spi; static UINTN g_spi_sz; static UINT32 g_rom_idx; static UINT32 g_cp[4]; static UINTN g_cp_n; static UINT32 g_cp_src, g_cp_dst;
+static UINT8 *g_spi; static UINT32 g_rom_idx; static UINT32 g_cp[4]; static UINTN g_cp_n; static UINT32 g_cp_src, g_cp_dst;
 #define SPI_SIZE 0x40000
-/* The ROM is already resident in RAM from get_rom(). Do not allocate/copy a
- * second 256 KiB SPI image here: on some UEFI memory maps that transition can
- * stall. The Atom interpreter only reads the emulated SPI image. */
 static void spi_setup(const UINT8 *full, UINTN fullsz)
 {
-  lg(L"   [A5.1.1] SPI setup: reusing existing ROM buffer (%u bytes)\n", (UINT32)fullsz);
-  g_spi = (UINT8 *)full;
-  g_spi_sz = fullsz;
+  if (g_spi) FreePool(g_spi);
+  g_spi = AllocatePool(SPI_SIZE);
+  if (!g_spi) return;
+  SetMem(g_spi, SPI_SIZE, 0xFF);
+  CopyMem(g_spi, (VOID *)full, fullsz > SPI_SIZE ? SPI_SIZE : fullsz);
   g_rom_idx = 0; g_cp_n = 0; g_smc_idx1 = 0;
-  lg(L"   [A5.1.2] SPI setup complete\n");
 }
 static UINT32 spi_next(void)
 {
-  UINT32 v = (g_rom_idx + 4 <= g_spi_sz) ? *(UINT32 *)(g_spi + g_rom_idx) : 0xFFFFFFFFu;
+  UINT32 v = (g_rom_idx + 4 <= SPI_SIZE) ? *(UINT32 *)(g_spi + g_rom_idx) : 0xFFFFFFFFu;
   g_rom_idx += 4; return v;
 }
 /* the ROM may ask for its MC block at an offset where this file has none (e.g. trimmed other-brand ROMs):
  * serve the block from another ROM file at the requested offset */
 static void spi_overlay_if_needed(UINT32 off)
 {
-  if (off < 0x1D000 || off >= g_spi_sz || mc_block_ok(g_spi, g_spi_sz, off)) return;
+  if (off < 0x1D000 || off >= SPI_SIZE || mc_block_ok(g_spi, SPI_SIZE, off)) return;
   find_mc_fallback();
   if (!g_mc_fallback || g_mc_fallback_off < 0) { lg(L"   (ROM asks for data at 0x%x that this file lacks and no other file has the MC block)\n", off); return; }
   const UINT32 *h = (const UINT32 *)(g_mc_fallback + g_mc_fallback_off);
   UINTN bytes = (UINTN)h[3] * 4;
-  if (off + bytes <= g_spi_sz) { CopyMem(g_spi + off, (VOID *)(g_mc_fallback + g_mc_fallback_off), bytes); lg(L"   (this ROM file lacks the MC block: serving the copy from another ROM file)\n"); }
+  if (off + bytes <= SPI_SIZE) { CopyMem(g_spi + off, (VOID *)(g_mc_fallback + g_mc_fallback_off), bytes); lg(L"   (this ROM file lacks the MC block: serving the copy from another ROM file)\n"); }
 }
 
 static UINT32 c_rr(struct card_info *c, UINT32 reg)
@@ -436,7 +434,7 @@ static UINT32 c_rr(struct card_info *c, UINT32 reg)
     if (g_smc_idx1 == 0xC0600014u) return spi_next();                        /* ROM_DATA  */
     if (g_smc_idx1 == 0xC0600010u) return g_rom_idx;                         /* ROM_INDEX */
   }
-  UINT64 o = (UINT64)reg * 4; return (!g_mmio || o + 4 > 0x40000) ? 0 : *(volatile UINT32 *)(UINTN)(g_mmio + o);
+  UINT64 o = (UINT64)reg; return (!g_mmio || o + 4 > 0x40000) ? 0 : *(volatile UINT32 *)(UINTN)(g_mmio + o);
 }
 static void   c_rw(struct card_info *c, UINT32 reg, UINT32 v)
 {
@@ -687,18 +685,12 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     int rc = amdgpu_atom_asic_init(actx);
     lg(L"   [A8] ASIC_Init RETURNED: rc=%d, loops skipped=%d\n", rc, atom_loops_broken);
     post_code(0x40); TRACE(L"ASIC_Init returned %d, %d loops skipped", rc, atom_loops_broken);
-    g_spi = NULL; g_spi_sz = 0;                                                    /* back to the real hardware */
-    post_code(0x41); TRACE(L"ASIC_Init complete; leaving Atom path");
+    if (g_spi) { FreePool(g_spi); g_spi = NULL; }                                  /* back to the real hardware */
     unsigned long dt = atom_now_ms() - t0;
     BOOLEAN s7_ok = (c_rr(NULL, BIOS_SCRATCH_7) & S7_INIT_COMPLETE) != 0;
     lg(L"   ASIC_Init returned %d after %d ms, %d stuck loop(s) skipped\n", rc, (UINTN)dt, atom_loops_broken);
-    /* Do not perform the broad post-init register probe here.  The GPU is now alive,
-     * but GRBM/SRBM/SCRATCH reads are not required for continuing to the next card and
-     * some power-gated blocks can stall a UEFI MMIO read indefinitely. */
-    lg(L"   [A8.1] destroying Atom context...\n");
-    post_code(0x42);
+    regs_line(L"after: ");
     amdgpu_atom_destroy(actx);
-    post_code(0x43);
     if (bios_pad) { FreePool(bios_pad); bios_pad = NULL; }
     if (g_postdump) { post_code(0x50); TRACE(L"post-init dump start"); EFI_STATUS ds = dump_to(L"regdump_postinit.bin", FALSE); TRACE(L"post-init dump done"); lg(L"   register snapshot after init -> regdump_postinit.bin: %r\n", ds); }
     BOOLEAN good = (rc == 0) && s7_ok;
@@ -706,21 +698,10 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     if (good) {
       if (atom_loops_broken) lg(L"   NOTE: %d polling loop(s) never completed and were skipped (see SetVoltage analysis);\n"
                                    L"         the GPU may be running at its regulator's default voltage.\n", atom_loops_broken);
-      lg(L"   [A8.2] remembering/publishing initialized card...\n");
-      post_code(0x44);
       vfct_set(c, r.rom, r.romsz, AMD_VID, r.did);
-      post_code(0x44);
-      lg(L"   [A8.2.1] VFCT entry stored; deferring ACPI VFCT publication until all cards are initialized.\n");
-      /* Do not uninstall/install the ACPI VFCT table while iterating cards.  On
-       * some firmware this ACPI protocol operation can block after a GPU has
-       * just been initialized.  The entry is retained in g_vent and published
-       * once, after run_all() has finished. */
-      post_code(0x45);
-      lg(L"   [A8.3] preparing GPU for OS handoff...\n");
+      s = vfct_publish();
+      lg(L"   VFCT table after ASIC_Init: %r\n", s);
       prepare_for_os(&card);
-      post_code(0x46);
-      lg(L"   [A8.4] card initialization complete; returning to multi-card loop.\n");
-      post_code(0x47);
       return RES_OK;
     }
     prepare_for_os(&card);
@@ -1055,17 +1036,9 @@ static void process_card(CARD *c, EFI_HANDLE image, INTN manual)
       vfct_publish(); return;
     }
     if (r == RES_OK) {
-      lg(L"   [CARD] run_cand returned RES_OK; saving working ROM...\n");
-      post_code(0x48);
-      remember_working(c, idx);
-      post_code(0x49);
-      c->state = CS_LOADED; c->vram_mb = g_last_mem;
+      remember_working(c, idx); c->state = CS_LOADED; c->vram_mb = g_last_mem;
       if (cands[idx].size && idx < NRES && g_st.loops[idx]) set_note(c, L"initialised, %d stuck poll(s) skipped", (int)g_st.loops[idx]); else set_note(c, L"initialised from ROM");
-      lg(L"   [CARD] final card state recorded; returning to run_all() without VFCT ACPI publish.\n");
-      /* VFCT is intentionally published only once after every card has been
-       * initialized. Publishing it here can hang firmware after ASIC_Init. */
-      post_code(0x4A);
-      return;
+      vfct_publish(); return;
     }
     if (r == RES_VFCT) { c->state = CS_LOADED; set_note(c, L"ROM published to the OS only (VFCT)"); vfct_publish(); return; }
     if (r == RES_SYSTEMIC) { c->state = CS_FAILED; set_note(c, L"PCI access problem"); c->rom[0] = 0; return; }
@@ -1093,10 +1066,6 @@ static void run_all(EFI_HANDLE image, BOOLEAN only_failed)
     process_card(c, image, -1);
     ui_progress();
   }
-  /* Do not publish VFCT here.  GPU initialization is complete; return to
-     firmware without performing another ACPI table operation. */
-  lg(L"[MULTI] all cards processed; skipping final VFCT ACPI publish.\n");
-  post_code(0x4B);
   g_activity[0] = 0;
 }
 static BOOLEAN any_failed(void) { for (UINTN i = 0; i < g_ncards; i++) if (g_cards[i].state == CS_FAILED) return TRUE; return FALSE; }
@@ -1194,12 +1163,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
     for (;;) {
       run_all(image, g_cards[0].state != CS_PENDING);
       BOOLEAN fail = any_failed();
-      if (!fail) {
-        lg(L"[BOOT] all GPU initialization attempts completed successfully; leaving loader now.\n");
-        post_code(0x4C);
-        break;
-      }
-      INTN wait = CFG(S_FINISH_SECS);
+      INTN wait = (fail && CFG(S_HOLD_ON_FAIL)) ? -1 : (INTN)CFG(S_FINISH_SECS);
       if (wait == 0) break;
       if (status_page(image, TRUE, wait) != ACT_START) break;
     }
