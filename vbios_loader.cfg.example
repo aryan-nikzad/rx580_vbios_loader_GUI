@@ -22,9 +22,9 @@ boot_mode=auto
 menu_timeout=1
 # seconds the finished status page stays on screen before the OS boot continues (0 = no pause)
 finish_secs=8
-# seconds before handing control back to firmware for OS boot (1..30; default 3).
+# seconds before handing control back to firmware for OS boot (1..30; default 2).
 # Minimum 1 second so there is always an opportunity to interrupt; any key cancels the countdown.
-boot_delay=3
+boot_delay=2
 # when a card could not be initialised: wait for a key instead of continuing
 hold_on_fail=1
 
