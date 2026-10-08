@@ -355,3 +355,11 @@ The GUI font is a bitmap conversion of the Terminus Font (SIL OFL 1.1); see `LIC
 ## Development
 
 See [AGENTS.md](AGENTS.md) for project-specific development workflow, architecture notes, build rules, and firmware-handling requirements.
+
+---
+
+## Credits
+
+**Big thanks and lots of love ❤️ to Claude (Anthropic) and ChatGPT (OpenAI) for their help in building this lovely application!**
+
+**Proudly made by Reza Nikzad. Free to use, modify, sell, eat, or do whatever you want with it!**
