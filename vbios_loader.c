@@ -1373,7 +1373,7 @@ static UINTN status_page(EFI_HANDLE image, BOOLEAN done, INTN secs)
     else SPrint(foot, sizeof foot, done ? L"ENTER continue boot  -  A retry failed cards" : L"ENTER or A start  -  ESC skip loader");
     ui_draw_status(g_sel, foot);
     KEY k; BOOLEAN got = ui_key(&k, secs >= 0 ? 1000 : 0);
-    if (!got) { if (--secs < 0) return done ? ACT_BOOT : ACT_START; continue; }
+    if (!got) { if (secs > 0) secs--; if (secs <= 0) return done ? ACT_BOOT : ACT_START; continue; }
     if (secs >= 0) { secs = -1; continue; }                 /* first key only stops the countdown */
     UINTN cols = ui_cols();
     if (k.sc == 0x17) return done ? ACT_BOOT : ACT_SKIP;
@@ -1434,7 +1434,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
       SPrint(foot, sizeof foot, L"Continuing to OS boot in %d s", (int)left);
       ui_draw_status((UINTN)-1, foot);
       KEY k;
-      if (ui_key(&k, 1000)) break;
+      if (ui_key(&k, 1000)) { status_page(image, TRUE, -1); break; }
     }
   }
   ui_end();
