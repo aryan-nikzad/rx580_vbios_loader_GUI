@@ -1104,10 +1104,11 @@ static void publish_os_roms(void)
        (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, (UINT32)g_vent[i].sz);
     n++;
   }
-  lg(L"[HANDOFF] %u PCI ROM image(s) attached; publishing combined ACPI VFCT...\\n", (UINT32)n);
+  lg(L"[HANDOFF] %u PCI ROM image(s) attached; VFCT publication DISABLED for isolation.\\n", (UINT32)n);
+  /* VFCT is intentionally disabled in this build. The previous build stopped
+   * responding exactly when vfct_publish() was called, even with one GPU.
+   * First verify PciIo->RomImage alone survives the return to firmware/OS. */
   post_code(0x4E);
-  EFI_STATUS s = vfct_publish();
-  lg(L"[HANDOFF] combined ACPI VFCT: %r\\n", s);
   post_code(0x4F);
 }
 
