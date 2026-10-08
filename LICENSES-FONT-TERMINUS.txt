@@ -1,0 +1,7 @@
+The GUI uses glyph bitmaps derived from the Terminus Font (font_terminus.h).
+
+Terminus Font is Copyright (C) 2020 Dimitar Toshkov Zhekov, with Reserved Font Name "Terminus Font",
+and is licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+
+The glyph data embedded in font_terminus.h is a bitmap conversion of that font. It is distributed under
+the same SIL OFL 1.1 terms; this notice must stay with it. The font is not sold on its own.
