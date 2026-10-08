@@ -1084,6 +1084,33 @@ static void process_card(CARD *c, EFI_HANDLE image, INTN manual)
 
 /* ---------- pages ---------- */
 enum { ACT_START, ACT_SKIP, ACT_BOOT };
+/* Final OS handoff is deliberately separated from GPU initialization.
+ * During ASIC_Init we must not touch PciIo->RomImage or ACPI VFCT: doing so
+ * can interfere with firmware while the next GPU is still being initialized.
+ * Once every card has returned from run_cand(), the ROM buffers are still alive
+ * and it is safe to expose them to the firmware/OS in one operation. */
+static void publish_os_roms(void)
+{
+  UINTN n = 0;
+  lg(L"[HANDOFF] attaching loaded VBIOS images to PciIo protocols...\\n");
+  post_code(0x4D);
+  for (UINTN i = 0; i < MAX_CARDS; i++) {
+    if (!g_vent[i].used) continue;
+    CARD *c = &g_cards[i];
+    if (!c->pio || !g_vent[i].rom || !g_vent[i].sz) continue;
+    c->pio->RomImage = (UINT8 *)g_vent[i].rom;
+    c->pio->RomSize = g_vent[i].sz;
+    lg(L"   [HANDOFF] %02x:%02x.%x ROM attached: %u bytes\\n",
+       (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, (UINT32)g_vent[i].sz);
+    n++;
+  }
+  lg(L"[HANDOFF] %u PCI ROM image(s) attached; publishing combined ACPI VFCT...\\n", (UINT32)n);
+  post_code(0x4E);
+  EFI_STATUS s = vfct_publish();
+  lg(L"[HANDOFF] combined ACPI VFCT: %r\\n", s);
+  post_code(0x4F);
+}
+
 static void run_all(EFI_HANDLE image, BOOLEAN only_failed)
 {
   if (!g_ui_gui) FW(ST->ConOut->ClearScreen, ST->ConOut);
@@ -1093,10 +1120,9 @@ static void run_all(EFI_HANDLE image, BOOLEAN only_failed)
     process_card(c, image, -1);
     ui_progress();
   }
-  /* Do not publish VFCT here.  GPU initialization is complete; return to
-     firmware without performing another ACPI table operation. */
-  lg(L"[MULTI] all cards processed; skipping final VFCT ACPI publish.\n");
-  post_code(0x4B);
+  publish_os_roms();
+  lg(L"[MULTI] all cards processed; OS VBIOS handoff completed.\\n");
+  post_code(0x50);
   g_activity[0] = 0;
 }
 static BOOLEAN any_failed(void) { for (UINTN i = 0; i < g_ncards; i++) if (g_cards[i].state == CS_FAILED) return TRUE; return FALSE; }
