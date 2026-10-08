@@ -65,6 +65,9 @@ vfct_mode=auto
 #card.06:00.0.rom=00g_user_gigabyte_22fc_1340-2000.rom
 # leave one card completely alone:
 #card.0a:00.0.skip=1
+# always run initialization for one card, even when it already appears green:
+#card.03:00.0.force=1
+# skip and force are mutually exclusive when changed from the loader UI.
 # a label shown for the card (max 23 chars):
 #card.03:00.0.name=Rig slot 1
 
