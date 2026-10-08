@@ -265,23 +265,46 @@ static EFI_STATUS get_rom(UINTN i, ROMDATA *r)
   return extract_pe(efi, &r->pe, &r->pesz);
 }
 
-/* ---------- ACPI VFCT disabled ---------- */
+/* ---------- ACPI VFCT disabled (PCI-ROM handoff storage retained) ---------- */
 /*
- * VFCT is intentionally disabled in the Atom handoff path.
- * The loader's PCI ROM handoff is sufficient for Linux (PciIo->RomImage),
- * while installing/replacing an ACPI VFCT table can destabilize firmware.
- * Keep these helpers as no-ops so legacy menu/error paths cannot publish it.
+ * The VFCT table itself is temporarily disabled while we validate the
+ * PCI ROM handoff independently.  Keep the per-card handoff records alive:
+ * publish_os_roms() uses them to attach the loaded VBIOS to PciIo->RomImage.
+ * A later VFCT implementation can reuse this exact record set.
  */
+typedef struct {
+  BOOLEAN used;
+  const UINT8 *rom;
+  UINTN sz;
+  UINT32 bus, dev, fn;
+  UINT16 vid, did, ssv, ssi;
+} VENT;
+static VENT g_vent[MAX_CARDS];
+
 static void vfct_set(CARD *c, const UINT8 *rom, UINTN romsz, UINT16 vid, UINT16 did)
 {
-  (void)c; (void)rom; (void)romsz; (void)vid; (void)did;
+  UINTN k = (UINTN)(c - g_cards);
+  if (k >= MAX_CARDS) return;
+  VENT *e = &g_vent[k];
+  e->used = TRUE;
+  e->rom = rom;
+  e->sz = romsz;
+  e->bus = (UINT32)c->bus;
+  e->dev = (UINT32)c->dev;
+  e->fn = (UINT32)c->fn;
+  e->vid = vid;
+  e->did = did;
+  e->ssv = c->ssv;
+  e->ssi = c->ssi;
 }
 static void vfct_clear(CARD *c)
 {
-  (void)c;
+  UINTN k = (UINTN)(c - g_cards);
+  if (k < MAX_CARDS) ZeroMem(&g_vent[k], sizeof g_vent[k]);
 }
 static EFI_STATUS vfct_publish(void)
 {
+  /* Deliberately no ACPI installation yet. */
   return EFI_SUCCESS;
 }
 
