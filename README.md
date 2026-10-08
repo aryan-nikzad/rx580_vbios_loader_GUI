@@ -1,13 +1,14 @@
 # RX 580 vBIOS Loader
 
-A UEFI application for initializing an AMD Polaris / RX 580 GPU when its SPI
-vBIOS flash chip (or the electrical path to it) is unavailable.
+A UEFI application for initializing AMD Polaris / RX 580 GPUs when their SPI vBIOS flash chip, or the electrical path to it, is unavailable.
 
-The loader reads a **user-supplied full ROM dump** from a FAT filesystem,
-emulates the ROM reads required during initialization, and can expose the ROM
-to the operating system through PCI/ACPI mechanisms.
+The loader uses your own ROM files during early UEFI boot, initializes the GPUs, and can publish the selected ROMs to Linux through ACPI/VFCT.
+
+> **Important:** This project does not include GPU vBIOS dumps, GOP images, or vendor firmware. Use your own full SPI dumps or a compatible ROM you are legally allowed to use.
 
 ## Quick Setup
+
+### 1. Clone and build
 
 ```bash
 git clone https://github.com/aryan-nikzad/rx580_vbios_loader_git.git
@@ -16,9 +17,15 @@ sudo apt install gnu-efi build-essential
 make
 ```
 
-### Add your own vBIOS
+### 2. Create the vBIOS folder
 
-Copy one or more `.rom` vBIOS files into the `vbioses/` folder (the installer copies it to the EFI partition):
+Create `vbioses/` **inside the project folder**, next to `vbios_loader.efi`:
+
+```bash
+mkdir -p vbioses
+```
+
+Your project should look like this:
 
 ```text
 rx580_vbios_loader_git/
@@ -26,304 +33,281 @@ rx580_vbios_loader_git/
 │   ├── my_rx580.rom
 │   ├── backup.rom
 │   └── another_vbios.rom
+├── vbios_loader.efi
+├── install_linux.sh
 └── ...
 ```
 
-You can add **multiple ROMs, from different card brands**. For every card the loader tries the ROMs until one initializes it. With `smart_order` (default) ROM files whose name contains the card's brand (`xfx`, `gigabyte`, `asus`, `msi`, `sapphire`, ...) are tried first. You can also pin a ROM to a specific card (see below).
+### 3. Add your own vBIOS
 
-You must provide your **own vBIOS dump** or a legally obtained compatible ROM. Do not add proprietary ROMs to this repository.
+Copy one or more `.rom` vBIOS files into the `vbioses/` folder. The installer copies this folder to the EFI partition automatically.
 
-### Install
+For example:
+
+```bash
+cp /path/to/my_rx580.rom vbioses/
+```
+
+A **full SPI-chip dump** is preferred when available. Do not cut a 256 KiB hardware dump down to the smaller visible BIOS image.
+
+You can use multiple ROMs. Different cards can use different ROMs.
+
+### 4. Install
 
 ```bash
 sudo ./install_linux.sh
 ```
 
-> **Requirements:** The system must be booted in UEFI mode and GRUB must be installed. The installation script adds the vBIOS loader to the EFI/GRUB boot process.
-
-Reboot the system after installation.
-
-**Done.** On the next boot a status page shows every RX 580 in the machine, initializes the ones that need it, and then the normal OS boot continues.
-
-
-> **Important:** This repository intentionally contains **no GPU vBIOS dumps,
-> GOP images, extracted firmware, or prebuilt `.efi` loader**. Firmware is
-> hardware/vendor material and should be obtained and used by the end user.
-
-## What it does at boot
-
-1. Finds every supported AMD GPU (multi-GPU, any mix of brands) and every `*.rom` file.
-2. Shows a **status page** (graphical, or the classic text console) with one tile per card.
-3. For each card, in PCI order:
-   - already initialised and trained -> **green**, left untouched;
-   - otherwise ROMs are tried (pinned ROM, remembered working ROM, then smart order) until one brings the card up -> **yellow**;
-   - no ROM worked -> **red**, with the reason.
-4. Publishes one ROM per card to the OS through the ACPI VFCT table (the OS picks the image by PCI address), then continues booting.
-
-Under the hood it parses the PCI option-ROM structure, runs the included AtomBIOS interpreter, serves ROM-chip reads from your file during initialization, and remembers results per card in UEFI NVRAM.
-
-Colours: green = ready (already initialised), yellow = initialised by the loader, red = no ROM worked, grey = waiting / disabled.
-
-For the important initialization path, a **full SPI-chip dump** is preferable.
-The original project testing found that the Polaris memory-controller data may
-live beyond the normal BIOS image. Do not trim a hardware dump just because
-the visible BIOS image is smaller.
-
-## Linux handoff and runtime-power-management notes
-
-The ACPI VFCT handoff has been tested with multiple RX 580 cards. Linux can
-fetch the supplied ROMs from the platform and report the expected AtomBIOS
-version, for example:
+The installer copies the loader and `vbioses/` to:
 
 ```text
-Fetched VBIOS from platform
-[drm] ATOM BIOS: 113-58085SMD2-M81
+EFI/vbios_loader/
+├── vbios_loader.efi
+└── vbioses/
+    ├── my_rx580.rom
+    └── ...
 ```
 
-A separate limitation affects cards whose SPI flash or SPI connection is
-electrically unavailable: **Linux may later try to power-cycle and re-initialize
-a card after the loader has initialized it successfully.** This can happen
-during runtime power management, and may be triggered when the desktop session
-opens the GPU. In testing, the loader initialized the cards successfully and
-Linux fetched both VBIOS images, but a later runtime resume caused AtomBIOS
-initialization to stall, followed by errors such as RLC/ring timeouts and
-`-110` GPU initialization failures.
+It also creates a UEFI boot entry for the loader.
 
-This is a **runtime-PM/re-initialization limitation, not a VFCT handoff failure**.
-The loader's initialization path can emulate the unavailable SPI ROM and break
-certain stuck hardware polls; the normal Linux amdgpu driver does not have
-those loader-specific mechanisms.
+The system must be booted in **UEFI mode**, with the EFI System Partition mounted at `/boot/efi` (or use `ESP=/your/efi/path sudo ./install_linux.sh`).
 
-If a system freezes during desktop startup after successful VBIOS handoff,
-test disabling amdgpu runtime power management:
+### 5. Disable AMD runtime power management
+
+For cards whose physical SPI vBIOS is unavailable, Linux may later try to power-cycle and re-initialize the GPU. This can cause a freeze during desktop startup even though the loader initialized the card successfully.
+
+Add `amdgpu.runpm=0` to the GRUB kernel command line:
+
+```bash
+sudo nano /etc/default/grub
+```
+
+For example:
 
 ```text
 GRUB_CMDLINE_LINUX_DEFAULT="quiet splash amdgpu.runpm=0"
 ```
 
-Then run:
+Then:
 
 ```bash
-sudo update-grub && sudo reboot
+sudo update-grub
+sudo reboot
 ```
 
-For a one-boot test, add `amdgpu.runpm=0` to the Linux command line from the
-GRUB editor instead of changing the configuration permanently. After boot,
-`cat /sys/module/amdgpu/parameters/runpm` should report `0`.
-
-With `amdgpu.runpm=0`, the tested multi-GPU setup was able to boot normally.
-This workaround prevents runtime power cycling; it does not make kernel-side
-GPU re-initialization safe when the physical SPI ROM remains unavailable.
-
-**Suspend/resume, GPU resets, or unloading/reloading amdgpu can still require
-the kernel to re-initialize the GPU and may fail for the same reason.** Until
-the hardware is repaired or the kernel initialization path is adapted to the
-loader's SPI/MC emulation, prefer shutdown/reboot over suspend/resume on
-affected systems.
-
-This diagnosis is based on testing with healthy VBIOS switches and an iGPU
-driving the display. It explains the observed failure, but unusual firmware or
-GPU states may produce different behavior.
-
-## 1. Dump your own ROM
-
-If your card's SPI flash is still readable, make a complete dump before doing
-anything else. Use a programmer such as a CH341A with the appropriate voltage
-adapter, or another reliable SPI programmer.
-
-**Keep the original dump private. Do not commit it to Git.**
-
-The loader does not require a particular filename. Rename your dump to any
-simple `.rom` name, for example:
-
-```text
-my_rx580_original.rom
-```
-
-Then place it here:
-
-```text
-vbioses/my_rx580_original.rom
-```
-
-If you have multiple dumps, put all of them in `vbioses/`. The loader sorts them
-alphabetically. If you want one attempted first, give it a prefix such as:
-
-```text
-00_original_full_dump.rom
-01_matching_stock_rom.rom
-02_fallback_rom.rom
-```
-
-A `00_` filename is only an ordering convention; it does not make the ROM more
-compatible.
-
-### Where to obtain a stock ROM
-
-If your original dump is unavailable, you can research a matching stock image
-from the [TechPowerUp VGA BIOS Collection](https://www.techpowerup.com/vgabios/?model=RX+580).
-It contains many RX 580 vendor/model/memory variants. Match the exact board,
-memory size, memory vendor, subsystem ID, and preferably the BIOS version.
-
-A downloaded stock ROM is **not equivalent to your own full SPI dump**. In
-particular, this loader may need data located outside the normal BIOS image.
-Prefer a full dump from your own card whenever possible.
-
-You can also use a ROM dumped by another owner as a diagnostic/compatibility
-candidate, but verify that the board and memory configuration are actually
-compatible. The project does not endorse arbitrary ROM flashing.
-
-## 2. Build the loader
-
-On Debian/Ubuntu:
+After reboot, verify:
 
 ```bash
-sudo apt install build-essential gnu-efi efibootmgr
-make
+cat /sys/module/amdgpu/parameters/runpm
 ```
 
-This produces:
+It should print:
 
 ```text
-vbios_loader.efi
+0
 ```
 
-No ROM is embedded during the build.
+## Manual: Choose a ROM for Each GPU
 
-The source tree deliberately does not ship prebuilt firmware-derived `.efi`
-GOP files. If you need to extract a UEFI PE image for development/testing, the
-optional `tools/extract_pe.py` helper can process a ROM you supply locally.
+The normal setup can be completely automatic. You only need to choose the ROM for each card **once**.
 
-## 3. Prepare the EFI partition
+### First boot
 
-Everything lives in one folder on the FAT EFI System Partition:
+After installation, reboot.
+
+The loader shows one card for each detected GPU. Let the loader finish detecting the cards.
+
+If you want to configure a card manually:
+
+1. Use the **arrow keys** to select the GPU.
+2. Press **C** to open that card's page.
+3. Choose **one ROM** from the ROM list.
+4. Use **P** to **pin** that ROM to the selected card.
+5. Repeat the same steps for every GPU.
+
+For example, if you have two cards:
+
+```text
+GPU 1  →  00_xfx.rom
+GPU 2  →  01_gigabyte.rom
+```
+
+Pin the appropriate ROM to each card.
+
+The card's PCI address is shown by the loader. This address identifies the physical card, so different cards can have different ROM assignments.
+
+### Make it fully automatic
+
+Once a ROM is pinned to a card, the loader remembers the assignment in UEFI NVRAM.
+
+You do **not** need to select the ROM again on every boot.
+
+The normal flow becomes:
+
+```text
+Power on
+   ↓
+RX 580 vBIOS Loader starts
+   ↓
+Detect cards
+   ↓
+Use the remembered ROM for each card
+   ↓
+Initialize GPUs
+   ↓
+Publish vBIOSes to Linux
+   ↓
+Continue to GRUB / Linux
+```
+
+If you have multiple cards, configure each card once and then let the loader run automatically.
+
+### If you want to change a card's ROM
+
+Boot the loader, select the card, press **C**, and pin a different ROM with **P**.
+
+You can also use the settings/configuration system for permanent per-card assignments.
+
+Example:
+
+```text
+card.03:00.0.rom=00_xfx.rom
+card.06:00.0.rom=01_gigabyte.rom
+```
+
+The PCI address must match the address shown by the loader.
+
+### If you want to stop using a pinned ROM
+
+Open the card page and use **U** to unpin the card.
+
+The loader can then use its normal ROM selection order again.
+
+## Loader Controls
+
+| Key | Action |
+|---|---|
+| **ARROWS** | Select a GPU |
+| **ENTER / A** | Start AUTO / continue boot |
+| **C** | Open the selected card |
+| **P** | Pin the selected ROM to the card |
+| **U** | Unpin the card |
+| **S** | Open settings |
+| **L** | View the log |
+| **D** | Dump registers |
+| **X** | Disable / enable the selected card |
+| **R** | Forget remembered ROMs and per-ROM results |
+| **ESC** | Skip the loader before the run |
+
+Pressing a key during the startup countdown keeps the loader menu open instead of starting automatically.
+
+## How ROM Selection Works
+
+If a card has a pinned ROM, that ROM is tried first.
+
+Otherwise, the loader can use its remembered working ROM and then its normal ROM search order. With `smart_order=1`, filenames containing a card brand such as `xfx`, `gigabyte`, `asus`, `msi`, or `sapphire` are preferred.
+
+Filename ordering can help control fallback order:
+
+```text
+vbioses/
+├── 00_xfx_original.rom
+├── 01_gigabyte_original.rom
+└── 02_fallback.rom
+```
+
+A filename does **not** make an incompatible ROM compatible. Always use a ROM appropriate for the exact GPU board and memory configuration.
+
+## Full SPI Dump
+
+If the card's SPI flash is still readable, make a complete dump before doing anything else.
+
+A full programmer dump is preferable because important Polaris memory-controller data may exist outside the normal visible BIOS image.
+
+Keep your original dump private and do not commit it to Git.
+
+If your original dump is unavailable, a matching stock ROM may be used as a compatibility candidate. Match the exact board, memory size, memory vendor, subsystem ID, and preferably the BIOS version.
+
+## Multi-GPU
+
+For systems with several RX 580 cards:
+
+- Enable **Above 4G Decoding** in the motherboard BIOS.
+- The loader processes cards individually in PCI order.
+- Each card can have its own pinned ROM.
+- A card that is already initialized can be left untouched.
+- The loader publishes one selected ROM per card to Linux through ACPI/VFCT.
+
+The exact result depends on the GPU, ROM, motherboard firmware, and card state. Low-level GPU initialization can hang or reset a machine if the ROM is incompatible.
+
+## Troubleshooting
+
+### Linux freezes after the loader successfully initializes the GPUs
+
+First make sure `amdgpu.runpm=0` is present in the GRUB command line:
+
+```bash
+cat /sys/module/amdgpu/parameters/runpm
+```
+
+It should report `0`.
+
+This issue is a runtime power-management/re-initialization limitation. The loader can emulate access to an unavailable SPI ROM during its own initialization, while the normal Linux driver does not use those loader-specific mechanisms.
+
+Suspend/resume, GPU resets, or unloading/reloading `amdgpu` can still require GPU re-initialization and may fail on affected cards.
+
+### A ROM does not work
+
+Try the card's own full SPI dump first.
+
+If you are testing another ROM, verify:
+
+- exact GPU board/model;
+- VRAM size;
+- memory vendor/type;
+- subsystem ID;
+- BIOS compatibility;
+- that the dump is complete when a full SPI dump is available.
+
+## EFI Files
+
+After installation, the important files are:
 
 ```text
 EFI/
 └── vbios_loader/
     ├── vbios_loader.efi
-    ├── vbios_loader.cfg          optional - see below
-    ├── vbioses/
-    │   ├── 00_original_full_dump.rom
-    │   └── 01_matching_rom.rom
-    ├── loader_trace.txt          written by the loader (flushed per line)
-    └── regdump_*.bin             only if you request a register dump
+    ├── vbios_loader.cfg
+    └── vbioses/
+        ├── your_first_rom.rom
+        └── your_second_rom.rom
 ```
 
-The loader can also find a `vbioses` directory next to the `.efi`, in the old beta location `EFI/vbios/vbioses`, or in common EFI locations.
+The loader also keeps its trace and optional diagnostic files in this directory.
 
-From Linux, the included installer copies the loader, your local ROMs, and creates a commented `vbios_loader.cfg` if none exists (an existing one is never overwritten):
-
-```bash
-sudo sh install_linux.sh
-```
-
-It expects `/boot/efi` by default. Use `ESP=/your/mountpoint` if needed.
-
-## 4. Using the loader
-
-`vbios_loader.efi` is started through a UEFI boot entry (the installer creates one and puts it first), a UEFI shell, or GRUB `chainloader`.
-
-### Status page keys
-
-| Key | Action |
-|---|---|
-| ARROWS | select a card |
-| ENTER / A | start AUTO (before the run) - continue boot (after the run) / run the failed cards again |
-| C or SPACE | card page: run AUTO or one ROM on this card now, **P** pin a ROM to the card, **U** unpin, disable the card |
-| S | settings page |
-| L | log page |
-| D | dump the selected card's registers to the loader folder |
-| X | disable / enable the selected card |
-| R | forget remembered ROMs and per-ROM results of all cards |
-| ESC | skip the loader (before the run) |
-
-Any key during the start countdown stops it and keeps the page open.
-
-### Settings
-
-All settings are optional. Priority: **built-in default < `vbios_loader.cfg` < settings page (NVRAM)**. The loader never writes the `.cfg`; the settings page stores only what you change in a UEFI variable. `DEL` on a setting returns it to the file/default value. See `vbios_loader.cfg.example` for every option.
-
-| Setting | Default | Meaning |
-|---|---|---|
-| `ui_mode` | auto | `gui` (GOP), `text`, or `auto` |
-| `ui_scale` | 0 | GUI font magnification (0 = automatic) |
-| `boot_mode` | auto | `auto` starts after `menu_timeout`; `menu` waits for you |
-| `menu_timeout` | 5 | seconds before AUTO starts (0 = immediately) |
-| `finish_secs` | 8 | seconds the final page stays before the OS boots |
-| `hold_on_fail` | 1 | wait for a key if a card failed |
-| `skip_initialized` | 1 | leave already-initialised cards alone |
-| `reset_mode` | gpu | after a failed ROM: `gpu` (AMD config reset of that card), `pcie` (secondary-bus reset, experimental), `reboot` (cold reboot, the next boot continues with the next ROM), `none` |
-| `smart_order` | 1 | prefer ROM files named after the card's brand |
-| `pin_fallback` | 1 | if a pinned ROM fails, continue with the others |
-| `retry_failed` | 0 | retry exhausted cards every boot |
-| `engine` | atom | `atom` (built-in interpreter) or `gop` (firmware driver) |
-| `loop_ms`, `gop_timeout`, `vfct_only`, `post_dump`, `trace` | | diagnostics, as in the first beta (V/F/P/E keys became settings) |
-| `vfct_mode` | auto | how ROMs reach Linux: `auto` (ACPI protocol, falls back to XSDT patch), `acpi`, `xsdt` (direct, if firmware freezes in the ACPI call), `off` |
-| `rom_dir` | | ROM folder on the loader's partition |
-| `card.BB:DD.F.rom` / `.skip` / `.name` | | per-card ROM pin / ignore / label |
-
-### Multi-GPU notes
-
-- With several 8 GB cards, enable **Above 4G Decoding** in the motherboard BIOS. Without it the firmware may not give every card a register BAR; the card then shows red with `no MMIO BAR`.
-- Cards are processed one after another in PCI order; each gets its own history, so mixed brands can use different ROMs.
-- A card that is already initialised (for example because its SPI chip works) is detected per card and skipped.
-
-The exact behavior depends on the GPU, ROM, firmware environment, and the
-state of the card. A failed initialization can hang or reset the machine.
-
-## 5. Full-dump requirement
-
-The normal BIOS image inside an RX 580 ROM may be around 118–120 KiB while a
-physical SPI chip can contain a 256 KiB image.
-
-For this project, do **not** automatically cut a 256 KiB programmer dump down to
-the visible BIOS image. Keep the complete dump when available.
-
-If the selected ROM lacks the Polaris memory-controller block, the loader can
-look for a usable MC block in another supplied full dump. This is one reason
-keeping your own original full dump as the first `00_...rom` candidate is useful.
-
-## Firmware safety
-
-This is low-level firmware/GPU initialization software. Test with a recovery
-path available. Do not assume that an RX 580 ROM is interchangeable merely
-because both cards are called "RX 580".
-
-The project is intended to **load/use** a ROM for recovery or initialization.
-It is not a recommendation to flash an incompatible ROM onto the card.
-
-## Repository hygiene
+## Repository Hygiene
 
 Do not commit:
 
-- your personal SPI dumps;
+- personal SPI dumps;
 - downloaded vendor vBIOS files;
 - modified/mining ROMs;
 - extracted GOP/PE firmware;
 - generated `.efi` binaries;
 - diagnostic register dumps.
 
-These patterns are covered by `.gitignore`, but check `git status` before
-pushing.
+Check `git status` before pushing.
 
 ## Licensing
 
 Original project code is released under the MIT License in `LICENSE`.
 
-The `atomlib/` directory contains AMD AtomBIOS-derived code with its own AMD
-MIT-style copyright and permission notices. Those notices remain in the source;
-see `LICENSES-AMD-ATOMBIOS.txt`.
+The `atomlib/` directory contains AMD AtomBIOS-derived code with its own copyright and permission notices; see `LICENSES-AMD-ATOMBIOS.txt`.
 
-ROM dumps, vBIOS images, GOP images, and other vendor firmware are intentionally
-excluded from this repository and are **not covered by this project's MIT
-license**.
+ROM dumps, vBIOS images, GOP images, and other vendor firmware are intentionally excluded from this repository and are **not covered by this project's MIT license**.
 
-## Interface licence note
-
-The GUI font is a bitmap conversion of the Terminus Font (SIL OFL 1.1), see `LICENSES-FONT-TERMINUS.txt`.
+The GUI font is a bitmap conversion of the Terminus Font (SIL OFL 1.1); see `LICENSES-FONT-TERMINUS.txt`.
 
 ## Development
 
-See [`AGENTS.md`](AGENTS.md) for the project-specific development workflow,
-architecture notes, build rules, and firmware-handling requirements.
+See [AGENTS.md](AGENTS.md) for project-specific development workflow, architecture notes, build rules, and firmware-handling requirements.
