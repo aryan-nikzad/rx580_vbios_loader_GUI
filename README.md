@@ -69,6 +69,62 @@ The original project testing found that the Polaris memory-controller data may
 live beyond the normal BIOS image. Do not trim a hardware dump just because
 the visible BIOS image is smaller.
 
+## Linux handoff and runtime-power-management notes
+
+The ACPI VFCT handoff has been tested with multiple RX 580 cards. Linux can
+fetch the supplied ROMs from the platform and report the expected AtomBIOS
+version, for example:
+
+```text
+Fetched VBIOS from platform
+[drm] ATOM BIOS: 113-58085SMD2-M81
+```
+
+A separate limitation affects cards whose SPI flash or SPI connection is
+electrically unavailable: **Linux may later try to power-cycle and re-initialize
+a card after the loader has initialized it successfully.** This can happen
+during runtime power management, and may be triggered when the desktop session
+opens the GPU. In testing, the loader initialized the cards successfully and
+Linux fetched both VBIOS images, but a later runtime resume caused AtomBIOS
+initialization to stall, followed by errors such as RLC/ring timeouts and
+`-110` GPU initialization failures.
+
+This is a **runtime-PM/re-initialization limitation, not a VFCT handoff failure**.
+The loader's initialization path can emulate the unavailable SPI ROM and break
+certain stuck hardware polls; the normal Linux amdgpu driver does not have
+those loader-specific mechanisms.
+
+If a system freezes during desktop startup after successful VBIOS handoff,
+test disabling amdgpu runtime power management:
+
+```text
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash amdgpu.runpm=0"
+```
+
+Then run:
+
+```bash
+sudo update-grub && sudo reboot
+```
+
+For a one-boot test, add `amdgpu.runpm=0` to the Linux command line from the
+GRUB editor instead of changing the configuration permanently. After boot,
+`cat /sys/module/amdgpu/parameters/runpm` should report `0`.
+
+With `amdgpu.runpm=0`, the tested multi-GPU setup was able to boot normally.
+This workaround prevents runtime power cycling; it does not make kernel-side
+GPU re-initialization safe when the physical SPI ROM remains unavailable.
+
+**Suspend/resume, GPU resets, or unloading/reloading amdgpu can still require
+the kernel to re-initialize the GPU and may fail for the same reason.** Until
+the hardware is repaired or the kernel initialization path is adapted to the
+loader's SPI/MC emulation, prefer shutdown/reboot over suspend/resume on
+affected systems.
+
+This diagnosis is based on testing with healthy VBIOS switches and an iGPU
+driving the display. It explains the observed failure, but unusual firmware or
+GPU states may produce different behavior.
+
 ## 1. Dump your own ROM
 
 If your card's SPI flash is still readable, make a complete dump before doing
