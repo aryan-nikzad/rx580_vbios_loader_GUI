@@ -613,18 +613,18 @@ static BOOLEAN card_reset(CARD *c);
 static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
 {
   EFI_STATUS s; ROMDATA r;
-  lg(L"\n>> ROM %d/%d: %s\n", idx + 1, ncand, cands[idx].name);
+  lg(L"\n>> ROM %d/%d: %s\n", idx + 1, ncand, cands[idx].name); post_code(0xA0);
   lg(L"   [A0] ROM load: opening file...\n");
   TRACE(L"ROM %d/%d %s", idx + 1, ncand, cands[idx].name); post_code(0x10);
   s = get_rom(idx, &r);
   if (EFI_ERROR(s)) { lg(L"   [A0] get_rom FAILED: %r\n", s); if (idx < NRES) { g_st.res[idx] = 2; state_save(); } return RES_SKIP; }
-  lg(L"   [A1] ROM loaded: %u bytes, parsed BIOS image %u bytes\n", (UINT32)r.fullsz, (UINT32)r.romsz);
+  lg(L"   [A1] ROM loaded: %u bytes, parsed BIOS image %u bytes\n", (UINT32)r.fullsz, (UINT32)r.romsz); post_code(0xA1);
   if (r.vid != AMD_VID) { lg(L"   not an AMD ROM\n"); return RES_SKIP; }
   if (r.did != c->did) { lg(L"   ROM is for device %04x, this card is %04x\n", r.did, c->did); return RES_SKIP; }
 
   EFI_HANDLE gpu = c->h; EFI_PCI_IO_PROTOCOL *pio = c->pio;
   UINTN seg, bus, dev, fn; UINT16 ssv, ssi; UINT32 bar5 = 0;
-  lg(L"   [A2] ROM accepted; PCI config only...\n");
+  lg(L"   [A2] ROM accepted; PCI config only...\n"); post_code(0xA2);
   FW(pio->GetLocation, pio, &seg, &bus, &dev, &fn);
   FW(pio->Pci.Read, pio, EfiPciIoWidthUint16, 0x2C, 1, &ssv);
   FW(pio->Pci.Read, pio, EfiPciIoWidthUint16, 0x2E, 1, &ssi);
@@ -636,7 +636,7 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
         bus, dev, fn, AMD_VID, r.did, ssv, ssi, (UINT32)g_mmio);
 
   TRACE(L"GPU %02x:%02x.%x mmio=%08x", bus, dev, fn, (UINT32)g_mmio); post_code(0x11);
-  lg(L"   [A3] PCI/BAR setup complete; MMIO address=%08x\n", (UINT32)g_mmio);
+  lg(L"   [A3] PCI/BAR setup complete; MMIO address=%08x\n", (UINT32)g_mmio); post_code(0xA3);
   if (g_engine_atom) {
     /* Atom mode deliberately does not touch PciIo->RomImage or install VFCT before ASIC_Init. */
     if (vfct_only) { lg(L"   VFCT-only requested, but Atom mode requires ASIC_Init first.\n"); }
@@ -671,10 +671,10 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
       lg(L"   [A4] using existing ROM buffer; no second ROM allocation/copy\n");
     }
     struct card_info card = { NULL, c_rw, c_rr, c_iw, c_ir, c_iw, c_ir };
-    lg(L"   [A4] AtomBIOS parsing tables in RAM only...\n");
+    lg(L"   [A4] AtomBIOS parsing tables in RAM only...\n"); post_code(0xA4);
     struct atom_context *actx = amdgpu_atom_parse(&card, bios);
     if (!actx) { lg(L"   AtomBIOS parse failed (not a usable ROM)\n"); FreePool(bios); if (idx < NRES) { g_st.res[idx] = 2; state_save(); } return RES_SKIP; }
-    lg(L"   [A5] AtomBIOS parsed. Checking whether the GPU is already initialised...\n");
+    lg(L"   [A5] AtomBIOS parsed. Checking whether the GPU is already initialised...\n"); post_code(0xA5);
     /*
      * A working vBIOS chip, the motherboard firmware, or an earlier loader pass
      * can leave this GPU fully trained before we get here. Do not run ASIC_Init
@@ -703,17 +703,17 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     lg(L"   GPU is not already initialised; proceeding with ASIC_Init.\n");
     /* Do not perform an EFI Runtime SetVariable while the GPU is being brought up. */
     if (idx < NRES) { g_st.res[idx] = 1; }
-    lg(L"   [A5.1] preparing SPI/MC emulation...\n");
+    lg(L"   [A5.1] preparing SPI/MC emulation...\n"); post_code(0xA6);
     spi_setup(r.full, r.fullsz);
     if (!g_spi) { lg(L"   [A5] SPI emulation buffer allocation failed\n"); amdgpu_atom_destroy(actx); if (bios_pad) FreePool(bios_pad); return RES_SKIP; }
-    lg(L"   [A6] SPI/MC ROM emulation prepared.\n");
+    lg(L"   [A6] SPI/MC ROM emulation prepared.\n"); post_code(0xA7);
     atom_break_loops = 1; atom_loop_ms = ATOM_LOOP_MS; atom_loops_broken = 0;
-    lg(L"   [A7] ASIC_Init STARTING NOW. First GPU MMIO access may occur inside the Atom interpreter.\n");
+    lg(L"   [A7] ASIC_Init STARTING NOW. First GPU MMIO access may occur inside the Atom interpreter.\n"); post_code(0xA8);
     lg(L"   running ASIC_Init in the built-in interpreter (a poll stuck > %d ms is skipped)...\n", ATOM_LOOP_MS);
     TRACE(L"ASIC_Init start"); post_code(0x20);
     unsigned long t0 = atom_now_ms();
     int rc = amdgpu_atom_asic_init(actx);
-    lg(L"   [A8] ASIC_Init RETURNED: rc=%d, loops skipped=%d\n", rc, atom_loops_broken);
+    lg(L"   [A8] ASIC_Init RETURNED: rc=%d, loops skipped=%d\n", rc, atom_loops_broken); post_code(0xA9);
     post_code(0x40); TRACE(L"ASIC_Init returned %d, %d loops skipped", rc, atom_loops_broken);
     g_spi = NULL; g_spi_sz = 0;                                                    /* back to the real hardware */
     post_code(0x41); TRACE(L"ASIC_Init complete; leaving Atom path");
@@ -723,7 +723,7 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     /* Do not perform the broad post-init register probe here.  The GPU is now alive,
      * but GRBM/SRBM/SCRATCH reads are not required for continuing to the next card and
      * some power-gated blocks can stall a UEFI MMIO read indefinitely. */
-    lg(L"   [A8.1] destroying Atom context...\n");
+    lg(L"   [A8.1] destroying Atom context...\n"); post_code(0xAA);
     post_code(0x42);
     amdgpu_atom_destroy(actx);
     post_code(0x43);
@@ -734,20 +734,20 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     if (good) {
       if (atom_loops_broken) lg(L"   NOTE: %d polling loop(s) never completed and were skipped (see SetVoltage analysis);\n"
                                    L"         the GPU may be running at its regulator's default voltage.\n", atom_loops_broken);
-      lg(L"   [A8.2] remembering/publishing initialized card...\n");
+      lg(L"   [A8.2] remembering/publishing initialized card...\n"); post_code(0xAB);
       post_code(0x44);
       vfct_set(c, r.rom, r.romsz, AMD_VID, r.did);
       post_code(0x44);
-      lg(L"   [A8.2.1] VFCT entry stored; deferring ACPI VFCT publication until all cards are initialized.\n");
+      lg(L"   [A8.2.1] VFCT entry stored; deferring ACPI VFCT publication until all cards are initialized.\n"); post_code(0xAC);
       /* Do not uninstall/install the ACPI VFCT table while iterating cards.  On
        * some firmware this ACPI protocol operation can block after a GPU has
        * just been initialized.  The entry is retained in g_vent and published
        * once, after run_all() has finished. */
       post_code(0x45);
-      lg(L"   [A8.3] preparing GPU for OS handoff...\n");
+      lg(L"   [A8.3] preparing GPU for OS handoff...\n"); post_code(0xAD);
       prepare_for_os(&card);
       post_code(0x46);
-      lg(L"   [A8.4] card initialization complete; returning to multi-card loop.\n");
+      lg(L"   [A8.4] card initialization complete; returning to multi-card loop.\n"); post_code(0xAE);
       post_code(0x47);
       return RES_OK;
     }
@@ -845,17 +845,7 @@ static void dump_registers(CARD *c)
 /* ---------- breadcrumbs for hard freezes ----------
  * \loader_trace.txt on the EFI partition (flushed after every line) and the motherboard POST-code port 0x80
  * (shows on boards with a 2-digit Q-Code display). After a freeze the last line / last code is the last phase reached. */
-static void post_code(UINT8 v)
-{
-  /* Keep the hardware POST code and mirror every code to the persistent trace.
-   * Do not use TRACE() here because TRACE() itself calls post_code(). */
-  __asm__ volatile("outb %0, %1" :: "a"(v), "Nd"((UINT16)0x80));
-  if (CFG(S_TRACE)) {
-    CHAR16 msg[40];
-    SPrint(msg, sizeof msg, L"POST 0x%02x", (UINT32)v);
-    trace_write(msg);
-  }
-}
+static void post_code(UINT8 v) { __asm__ volatile("outb %0, %1" :: "a"(v), "Nd"((UINT16)0x80)); }
 static EFI_FILE_HANDLE g_trace; static BOOLEAN g_trace_tried;
 static void trace_write(const CHAR16 *msg)
 {
