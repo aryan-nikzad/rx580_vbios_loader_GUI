@@ -34,7 +34,7 @@ typedef struct {
   const CHAR16 *label, *help;
 } SETDEF;
 
-typedef struct { UINT8 bus, dev, fn; CHAR16 rom[72]; BOOLEAN skip; CHAR16 name[24]; UINT8 origin; } PIN;
+typedef struct { UINT8 bus, dev, fn; CHAR16 rom[72]; BOOLEAN skip; BOOLEAN force; CHAR16 name[24]; UINT8 origin; } PIN;
 
 extern INT32 g_set[S_COUNT]; extern UINT8 g_origin[S_COUNT]; extern const SETDEF g_setdef[S_COUNT];
 extern CHAR16 g_cfg_romdir[128]; extern PIN g_pins[MAX_CARDS]; extern UINTN g_npins;
