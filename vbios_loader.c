@@ -673,8 +673,33 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     lg(L"   [A4] AtomBIOS parsing tables in RAM only...\n");
     struct atom_context *actx = amdgpu_atom_parse(&card, bios);
     if (!actx) { lg(L"   AtomBIOS parse failed (not a usable ROM)\n"); FreePool(bios); if (idx < NRES) { g_st.res[idx] = 2; state_save(); } return RES_SKIP; }
-    lg(L"   [A5] AtomBIOS parsed. NO GPU MMIO probing will occur before ASIC_Init.\n");
-    /* Do not inspect MC/MEMSIZE/SCRATCH or attempt initialized-state detection here. */
+    lg(L"   [A5] AtomBIOS parsed. Checking whether the GPU is already initialised...\n");
+    /*
+     * A working vBIOS chip, the motherboard firmware, or an earlier loader pass
+     * can leave this GPU fully trained before we get here. Do not run ASIC_Init
+     * again in that case: re-POSTing an already trained Polaris card can corrupt
+     * its state or hang the machine.
+     *
+     * This is deliberately a narrow probe. MC_SEQ_MISC9 is used to confirm that
+     * the memory controller is trained, while BIOS_SCRATCH_7 bit 9 is the
+     * AtomBIOS "initialisation complete" flag. We only read these after the
+     * AtomBIOS parser has been created and the PCI BAR has been enabled.
+     */
+    UINT32 m9 = c_rr(NULL, R_MC_SEQ_MISC9);
+    UINT32 s7b = c_rr(NULL, BIOS_SCRATCH_7);
+    BOOLEAN trained = (m9 & 0xFF) != 0 && (m9 & 0xFF) != 0xFF &&
+                      (((m9 >> 8) & 0xFF) == (m9 & 0xFF));
+    if (trained && (s7b & S7_INIT_COMPLETE) && !(g_force || g_force_once)) {
+      g_last_skipped = TRUE;
+      g_last_mem = rreg(R_MEMSIZE);
+      lg(L"   GPU is already initialised and trained (MC_SEQ_MISC9=%08x) - leaving it untouched.\n", m9);
+      TRACE(L"already initialised, skipped (MISC9=%08x SCRATCH7=%08x)", m9, s7b);
+      if (idx < NRES) { g_st.res[idx] = 4; state_save(); }
+      if (bios_pad) FreePool(bios_pad);
+      FreePool(r.rom);
+      return RES_OK;
+    }
+    lg(L"   GPU is not already initialised; proceeding with ASIC_Init.\n");
     /* Do not perform an EFI Runtime SetVariable while the GPU is being brought up. */
     if (idx < NRES) { g_st.res[idx] = 1; }
     lg(L"   [A5.1] preparing SPI/MC emulation...\n");
