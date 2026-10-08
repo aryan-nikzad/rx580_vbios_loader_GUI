@@ -721,7 +721,7 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
       FreePool(r.rom);
       return RES_OK;
     }
-    lg(L"   GPU requires ASIC_Init%s.\n", force_init ? L" (forced)" : "");
+    lg(L"   GPU requires ASIC_Init%s.\n", force_init ? L" (forced)" : L"");
     /* Do not perform an EFI Runtime SetVariable while the GPU is being brought up. */
     if (idx < NRES) { g_st.res[idx] = 1; }
     lg(L"   [A5.1] preparing SPI/MC emulation...\n"); post_code(0xA6);
