@@ -52,6 +52,12 @@ the person testing the hardware.
 - The loader never writes `vbios_loader.cfg`.
 - Persistent state: one NVRAM variable per card (`VbiosLdrC<bus><dev><fn>`), settings in `VbiosLdrCfg`.
 
+### VFCT handoff (v0.2 fix)
+
+- `run_cand()` only records per-card ROMs (`vfct_set/clear`); `publish_os_roms()` builds ONE VFCT after the last card.
+- ROMs are copied into the table (ACPI reclaim memory); never point ACPI at loader pool buffers.
+- Table/XSDT logic lives in `vfct.h` (no EFI calls); test with `tools/test_vfct.c` on the host.
+
 ### Testing without a GPU
 
 `demo=1` shows five fake cards (no hardware access). QEMU + OVMF can run the GUI,

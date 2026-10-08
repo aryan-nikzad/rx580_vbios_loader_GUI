@@ -29,6 +29,7 @@ vbios_loader.so: $(OBJS)
 %.o: %.c loader.h
 	gcc $(CFLAGS) -c $< -o $@
 
+vbios_loader.o: vfct.h
 gfx.o: gfx.h font_terminus.h
 ui.o: gfx.h
 

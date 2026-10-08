@@ -30,6 +30,7 @@ const SETDEF g_setdef[S_COUNT] = {
  [S_POSTDUMP]     = { (CHAR8*)"post_dump",       0, 0, 1, 0,       NULL,                    L"Dump regs after init",  L"Write a register snapshot after init (diagnostic, can freeze the PC)" },
  [S_TRACE]        = { (CHAR8*)"trace",           0, 0, 1, 1,       NULL,                    L"Trace file",            L"Write loader_trace.txt (flushed per line) next to the loader" },
  [S_UI_SCALE]     = { (CHAR8*)"ui_scale",        2, 0, 3, 0,       NULL,                    L"GUI text scale",        L"0 = automatic, 1..3 = fixed magnification of the GUI font" },
+ [S_VFCT_MODE]   = { (CHAR8*)"vfct_mode",       1, 0, 3, VM_AUTO, (CHAR8*)"auto|acpi|xsdt|off", L"VFCT install method", L"How the ROMs reach Linux: auto = ACPI protocol, falls back to patching the XSDT; acpi = protocol only; xsdt = patch XSDT directly (if the firmware freezes in the ACPI call); off = none" },
  [S_DEMO]         = { (CHAR8*)"demo",            0, 0, 1, 0,       NULL,                    L"Demo cards",            L"Show fake cards to preview the interface (no hardware is touched)" },
 };
 

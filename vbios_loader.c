@@ -11,6 +11,7 @@
  * Menu keys   : UP/DOWN+ENTER = run one ROM, V = VFCT-only, R = forget state, ESC = skip.
  */
 #include "loader.h"
+#include "vfct.h"
 
 static void trace_write(const CHAR16 *msg);
 static void post_code(UINT8 v);
@@ -265,12 +266,11 @@ static EFI_STATUS get_rom(UINTN i, ROMDATA *r)
   return extract_pe(efi, &r->pe, &r->pesz);
 }
 
-/* ---------- ACPI VFCT disabled (PCI-ROM handoff storage retained) ---------- */
+/* ---------- ACPI VFCT: per-card ROM records ---------- */
 /*
- * The VFCT table itself is temporarily disabled while we validate the
- * PCI ROM handoff independently.  Keep the per-card handoff records alive:
- * publish_os_roms() uses them to attach the loaded VBIOS to PciIo->RomImage.
- * A later VFCT implementation can reuse this exact record set.
+ * run_cand() only records "card X was brought up with this ROM" here (vfct_set / vfct_clear).  Nothing is
+ * installed while cards are still being initialised: publish_os_roms() (below, called once from run_all()
+ * after the LAST card) turns the records into ONE VFCT table that contains an image for every loaded card.
  */
 typedef struct {
   BOOLEAN used;
@@ -304,7 +304,8 @@ static void vfct_clear(CARD *c)
 }
 static EFI_STATUS vfct_publish(void)
 {
-  /* Deliberately no ACPI installation yet. */
+  /* Intentionally a no-op: the table is installed once, after all cards, by publish_os_roms(). Installing /
+   * uninstalling per card is what made the earlier build stall inside the ACPI protocol. */
   return EFI_SUCCESS;
 }
 
@@ -1085,32 +1086,174 @@ static void process_card(CARD *c, EFI_HANDLE image, INTN manual)
 
 /* ---------- pages ---------- */
 enum { ACT_START, ACT_SKIP, ACT_BOOT };
-/* Final OS handoff is deliberately separated from GPU initialization.
- * During ASIC_Init we must not touch PciIo->RomImage or ACPI VFCT: doing so
- * can interfere with firmware while the next GPU is still being initialized.
- * Once every card has returned from run_cand(), the ROM buffers are still alive
- * and it is safe to expose them to the firmware/OS in one operation. */
+/* =====================================================================================================
+ * OS handoff: ONE ACPI VFCT table holding a ROM image for every card the loader brought up.
+ *
+ * Why: Linux amdgpu gets the vBIOS of a card whose SPI chip is dead only from ACPI VFCT (matched by
+ * PCI bus/dev/fn + vendor/device).  PciIo->RomImage is a UEFI-side field that Linux never sees.  Without a
+ * VFCT record for a card amdgpu cannot find its vBIOS.
+ *
+ * Rules this code follows:
+ *  - the table is built once, after the last card (never between two cards' ASIC_Init);
+ *  - ROM bytes are COPIED into the table: the loader's ROM buffers are EfiBootServicesData, which the OS
+ *    reclaims, so the table must never point into them;
+ *  - memory for the table is EfiACPIReclaimMemory;
+ *  - an existing firmware VFCT (e.g. from an AMD iGPU/dGPU with a working vBIOS) is merged, not replaced:
+ *    its images are kept for every PCI address we do not provide an image for;
+ *  - install path: EFI_ACPI_TABLE_PROTOCOL, falling back to patching the XSDT directly (vfct_mode).
+ * Every step writes a flushed trace line, so a freeze inside the firmware call still shows where it was.
+ * ===================================================================================================== */
+static EFI_GUID gAcpi20Guid = ACPI_20_TABLE_GUID;
+static UINTN   g_vfct_key;  static BOOLEAN g_vfct_proto_have;           /* installed via EFI_ACPI_TABLE_PROTOCOL */
+static UINT8  *g_vfct_mem;  static UINTN g_vfct_pages;                  /* our table when installed by XSDT patch */
+static UINT8  *g_xsdt_mem;  static UINTN g_xsdt_pages;                  /* our patched XSDT */
+static BOOLEAN g_fw_scanned; static const UINT8 *g_fw_vfct; static UINT32 g_fw_vfct_len;   /* firmware's own VFCT */
+
+static UINT8 *acpi_alloc(UINTN bytes, UINTN *pages)
+{
+  EFI_PHYSICAL_ADDRESS a = 0xFFFFFFFFull; *pages = (bytes + 4095) / 4096;
+  if (EFI_ERROR(FW(BS->AllocatePages, AllocateMaxAddress, EfiACPIReclaimMemory, *pages, &a))) {
+    a = 0; if (EFI_ERROR(FW(BS->AllocatePages, AllocateAnyPages, EfiACPIReclaimMemory, *pages, &a))) return NULL;
+  }
+  SetMem((VOID *)(UINTN)a, *pages * 4096, 0);
+  return (UINT8 *)(UINTN)a;
+}
+
+static UINT8 *find_rsdp20(void)
+{
+  for (UINTN i = 0; i < ST->NumberOfTableEntries; i++) {
+    if (CompareMem(&ST->ConfigurationTable[i].VendorGuid, &gAcpi20Guid, sizeof(EFI_GUID))) continue;
+    UINT8 *p = (UINT8 *)ST->ConfigurationTable[i].VendorTable;
+    if (p && !CompareMem(p, "RSD PTR ", 8) && p[15] >= 2 && vf_get32(p + 20) >= 36 && vf_get32(p + 20) <= 64 && vf_get64(p + 24)) return p;
+  }
+  return NULL;
+}
+/* index of the "VFCT" entry in an XSDT, -1 if none */
+static INTN xsdt_find_vfct(const UINT8 *x, UINT32 len)
+{
+  UINT32 n = (len - ACPI_HDR_SIZE) / 8;
+  for (UINT32 i = 0; i < n; i++) {
+    UINT64 a = vf_get64(x + ACPI_HDR_SIZE + 8u * i);
+    if (a && !CompareMem((VOID *)(UINTN)a, "VFCT", 4)) return (INTN)i;
+  }
+  return -1;
+}
+static BOOLEAN xsdt_sane(const UINT8 *x, UINT32 len) { return len >= ACPI_HDR_SIZE && len <= 0x100000 && !CompareMem((VOID *)x, "XSDT", 4); }
+
+/* remember the firmware's own VFCT (once, before we touch anything) so its images can be merged */
+static void fw_vfct_scan(void)
+{
+  if (g_fw_scanned) return;
+  g_fw_scanned = TRUE;
+  UINT8 *r = find_rsdp20(); if (!r) return;
+  const UINT8 *x = (const UINT8 *)(UINTN)vf_get64(r + 24); UINT32 xl = vf_get32(x + 4);
+  if (!xsdt_sane(x, xl)) return;
+  INTN k = xsdt_find_vfct(x, xl); if (k < 0) return;
+  const UINT8 *t = (const UINT8 *)(UINTN)vf_get64(x + ACPI_HDR_SIZE + 8u * (UINT32)k);
+  g_fw_vfct = t; g_fw_vfct_len = vf_get32(t + 4);
+  lg(L"   [VFCT] firmware already provides a VFCT (%u bytes) - its images are kept for cards we do not handle\n", g_fw_vfct_len);
+  TRACE(L"VFCT: firmware VFCT found, %d bytes", g_fw_vfct_len);
+}
+
+/* install by writing the pointer into a copy of the XSDT; works without EFI_ACPI_TABLE_PROTOCOL and can replace a firmware VFCT */
+static EFI_STATUS vfct_install_xsdt(const VFCT_IMG *im, UINTN n)
+{
+  UINT32 total = vfct_total(im, n);
+  UINT8 *r = find_rsdp20(); if (!r) return EFI_NOT_FOUND;
+  const UINT8 *ox = (const UINT8 *)(UINTN)vf_get64(r + 24); UINT32 ol = vf_get32(ox + 4);
+  if (!xsdt_sane(ox, ol)) return EFI_COMPROMISED_DATA;
+  UINTN tp, xp; UINT8 *tbl = acpi_alloc(total, &tp); if (!tbl) return EFI_OUT_OF_RESOURCES;
+  UINT8 *nx = acpi_alloc(ol + 8, &xp); if (!nx) { FW(BS->FreePages, (EFI_PHYSICAL_ADDRESS)(UINTN)tbl, tp); return EFI_OUT_OF_RESOURCES; }
+  vfct_write(tbl, im, n);
+  UINT32 nl = xsdt_patch(ox, ol, xsdt_find_vfct(ox, ol), (UINT64)(UINTN)tbl, nx);
+  if (!nl) { FW(BS->FreePages, (EFI_PHYSICAL_ADDRESS)(UINTN)tbl, tp); FW(BS->FreePages, (EFI_PHYSICAL_ADDRESS)(UINTN)nx, xp); return EFI_COMPROMISED_DATA; }
+  TRACE(L"VFCT: XSDT %08x -> %08x (%d entries), table %08x", (UINT32)(UINTN)ox, (UINT32)(UINTN)nx, (nl - ACPI_HDR_SIZE) / 8, (UINT32)(UINTN)tbl);
+  vf_put64(r + 24, (UINT64)(UINTN)nx);                                  /* RSDP: new XSDT, then the extended checksum */
+  r[32] = 0; r[32] = (UINT8)(0u - vf_sum(r, vf_get32(r + 20)));
+  if (vf_get64(r + 24) != (UINT64)(UINTN)nx) {                          /* RSDP not writable on this machine */
+    FW(BS->FreePages, (EFI_PHYSICAL_ADDRESS)(UINTN)tbl, tp); FW(BS->FreePages, (EFI_PHYSICAL_ADDRESS)(UINTN)nx, xp); return EFI_WRITE_PROTECTED;
+  }
+  if (g_vfct_mem) FW(BS->FreePages, (EFI_PHYSICAL_ADDRESS)(UINTN)g_vfct_mem, g_vfct_pages);   /* previous pass of ours */
+  if (g_xsdt_mem) FW(BS->FreePages, (EFI_PHYSICAL_ADDRESS)(UINTN)g_xsdt_mem, g_xsdt_pages);
+  g_vfct_mem = tbl; g_vfct_pages = tp; g_xsdt_mem = nx; g_xsdt_pages = xp;
+  return EFI_SUCCESS;
+}
+
+static EFI_STATUS vfct_install_proto(const VFCT_IMG *im, UINTN n)
+{
+  ACPITBL *at; EFI_STATUS s = FW(BS->LocateProtocol, &gAcpiTbl, NULL, (VOID **)&at);
+  if (EFI_ERROR(s)) return s;
+  UINT32 total = vfct_total(im, n);
+  UINT8 *buf = AllocatePool(total); if (!buf) return EFI_OUT_OF_RESOURCES;       /* the protocol copies it */
+  vfct_write(buf, im, n);
+  if (g_vfct_proto_have) { TRACE(L"VFCT: uninstalling previous table"); FW(at->Uninstall, at, g_vfct_key); g_vfct_proto_have = FALSE; }
+  TRACE(L"VFCT: InstallAcpiTable %d bytes ...", total); post_code(0x4E);
+  UINTN key = 0; s = FW(at->Install, at, buf, total, &key);
+  TRACE(L"VFCT: InstallAcpiTable returned %r", s); post_code(0x4F);
+  FreePool(buf);
+  if (!EFI_ERROR(s)) { g_vfct_key = key; g_vfct_proto_have = TRUE; }
+  return s;
+}
+
+static EFI_STATUS vfct_install_all(void)
+{
+  VFCT_IMG im[VFCT_MAX_IMAGES]; UINTN n = 0, nours;
+  for (UINTN i = 0; i < MAX_CARDS && n < VFCT_MAX_IMAGES; i++) {
+    VENT *e = &g_vent[i]; if (!e->used || !e->rom || !e->sz || e->sz > 0x7FFFFFFF) continue;
+    im[n].bus = e->bus; im[n].dev = e->dev; im[n].fn = e->fn; im[n].vid = e->vid; im[n].did = e->did; im[n].ssv = e->ssv; im[n].ssi = e->ssi;
+    im[n].rom = e->rom; im[n].len = (UINT32)e->sz; n++;
+  }
+  nours = n;
+  INTN mode = CFG(S_VFCT_MODE);
+  if (mode == VM_OFF) { lg(L"   [VFCT] vfct_mode=off: no table installed\n"); return EFI_SUCCESS; }
+  if (!nours && !g_vfct_proto_have && !g_vfct_mem) { lg(L"   [VFCT] no card needs an image: no table installed\n"); return EFI_SUCCESS; }
+  fw_vfct_scan();
+  if (g_fw_vfct && g_fw_vfct_len) {                                   /* merge the firmware's images (ours win on the same PCI address) */
+    VFCT_IMG fw[VFCT_MAX_IMAGES]; UINTN nf = vfct_parse(g_fw_vfct, g_fw_vfct_len, fw, VFCT_MAX_IMAGES);
+    for (UINTN i = 0; i < nf && n < VFCT_MAX_IMAGES; i++) {
+      BOOLEAN dup = FALSE; for (UINTN k = 0; k < nours; k++) if (im[k].bus == fw[i].bus && im[k].dev == fw[i].dev && im[k].fn == fw[i].fn) dup = TRUE;
+      if (!dup) im[n++] = fw[i];
+    }
+  }
+  for (UINTN i = 0; i < n; i++)
+    lg(L"   [VFCT] image %u: %02x:%02x.%x %04x:%04x subsys %04x:%04x, %u bytes%s\n", (UINT32)i, im[i].bus, im[i].dev, im[i].fn, (UINT32)im[i].vid, (UINT32)im[i].did,
+       (UINT32)im[i].ssv, (UINT32)im[i].ssi, im[i].len, i < nours ? L"" : L"  (from firmware VFCT)");
+  TRACE(L"VFCT: %d image(s), %d bytes, mode %d", (UINT32)n, vfct_total(im, n), (UINT32)mode);
+
+  EFI_STATUS s = EFI_UNSUPPORTED;
+  /* a firmware VFCT is only replaceable through the XSDT; two VFCT tables would make the kernel use the first one */
+  BOOLEAN use_proto = (mode == VM_ACPI) || (mode == VM_AUTO && !g_fw_vfct && !g_vfct_mem);
+  if (use_proto || g_vfct_proto_have) {
+    s = vfct_install_proto(im, n);
+    lg(L"   [VFCT] EFI_ACPI_TABLE_PROTOCOL: %r\n", s);
+    if (!EFI_ERROR(s) || mode == VM_ACPI) return s;
+  }
+  s = vfct_install_xsdt(im, n);
+  lg(L"   [VFCT] XSDT patch: %r\n", s);
+  TRACE(L"VFCT: XSDT patch returned %r", s);
+  return s;
+}
+
+/* Final OS handoff is deliberately separated from GPU initialization: during ASIC_Init nothing touches
+ * PciIo->RomImage or ACPI.  Once every card has returned from run_cand() the ROM buffers are still alive
+ * and everything is exposed to the OS in one operation. */
 static void publish_os_roms(void)
 {
   UINTN n = 0;
-  lg(L"[HANDOFF] attaching loaded VBIOS images to PciIo protocols...\\n");
   post_code(0x4D);
-  for (UINTN i = 0; i < MAX_CARDS; i++) {
+  for (UINTN i = 0; i < MAX_CARDS; i++) {                             /* UEFI-side only; harmless, Linux does not read it */
     if (!g_vent[i].used) continue;
     CARD *c = &g_cards[i];
     if (!c->pio || !g_vent[i].rom || !g_vent[i].sz) continue;
     c->pio->RomImage = (UINT8 *)g_vent[i].rom;
     c->pio->RomSize = g_vent[i].sz;
-    lg(L"   [HANDOFF] %02x:%02x.%x ROM attached: %u bytes\\n",
-       (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, (UINT32)g_vent[i].sz);
     n++;
   }
-  lg(L"[HANDOFF] %u PCI ROM image(s) attached; VFCT publication DISABLED for isolation.\\n", (UINT32)n);
-  /* VFCT is intentionally disabled in this build. The previous build stopped
-   * responding exactly when vfct_publish() was called, even with one GPU.
-   * First verify PciIo->RomImage alone survives the return to firmware/OS. */
-  post_code(0x4E);
-  post_code(0x4F);
+  lg(L"[HANDOFF] %u card(s) with a loaded ROM; publishing the ACPI VFCT table for the OS...\n", (UINT32)n);
+  EFI_STATUS s = vfct_install_all();
+  if (EFI_ERROR(s)) lg(L"[HANDOFF] VFCT NOT installed (%r): the OS will not find a vBIOS for the loaded cards!\n", s);
+  else              lg(L"[HANDOFF] VFCT handoff done.\n");
+  post_code(0x50);
 }
 
 static void run_all(EFI_HANDLE image, BOOLEAN only_failed)
@@ -1123,8 +1266,7 @@ static void run_all(EFI_HANDLE image, BOOLEAN only_failed)
     ui_progress();
   }
   publish_os_roms();
-  lg(L"[MULTI] all cards processed; OS VBIOS handoff completed.\\n");
-  post_code(0x50);
+  lg(L"[MULTI] all cards processed.\n");
   g_activity[0] = 0;
 }
 static BOOLEAN any_failed(void) { for (UINTN i = 0; i < g_ncards; i++) if (g_cards[i].state == CS_FAILED) return TRUE; return FALSE; }

@@ -203,6 +203,7 @@ All settings are optional. Priority: **built-in default < `vbios_loader.cfg` < s
 | `retry_failed` | 0 | retry exhausted cards every boot |
 | `engine` | atom | `atom` (built-in interpreter) or `gop` (firmware driver) |
 | `loop_ms`, `gop_timeout`, `vfct_only`, `post_dump`, `trace` | | diagnostics, as in the first beta (V/F/P/E keys became settings) |
+| `vfct_mode` | auto | how ROMs reach Linux: `auto` (ACPI protocol, falls back to XSDT patch), `acpi`, `xsdt` (direct, if firmware freezes in the ACPI call), `off` |
 | `rom_dir` | | ROM folder on the loader's partition |
 | `card.BB:DD.F.rom` / `.skip` / `.name` | | per-card ROM pin / ignore / label |
 

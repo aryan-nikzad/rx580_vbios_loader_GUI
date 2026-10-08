@@ -50,6 +50,11 @@ vfct_only=0
 post_dump=0
 trace=1
 
+# how the ROMs are handed to Linux (ACPI VFCT table, one image per loaded card, built once after the last card):
+#   auto = ACPI table protocol, falls back to patching the XSDT; acpi = protocol only;
+#   xsdt = patch the XSDT directly (use this if the PC freezes inside the ACPI call; see loader_trace.txt); off = none
+vfct_mode=auto
+
 # ---- folders ---------------------------------------------------------------------------------
 # ROM folder on the loader's own EFI partition. Default: \EFI\vbios_loader\vbioses
 #rom_dir=\EFI\vbios_loader\vbioses
