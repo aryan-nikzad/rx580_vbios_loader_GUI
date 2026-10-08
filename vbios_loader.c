@@ -1433,7 +1433,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
       CHAR16 foot[120];
       SPrint(foot, sizeof foot, L"Continuing to OS boot in %d s", (int)left);
       ui_draw_status((UINTN)-1, foot);
-      FW(BS->Stall, 1000000);
+      KEY k;
+      if (ui_key(&k, 1000)) break;
     }
   }
   ui_end();
