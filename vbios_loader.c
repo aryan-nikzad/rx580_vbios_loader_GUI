@@ -845,7 +845,17 @@ static void dump_registers(CARD *c)
 /* ---------- breadcrumbs for hard freezes ----------
  * \loader_trace.txt on the EFI partition (flushed after every line) and the motherboard POST-code port 0x80
  * (shows on boards with a 2-digit Q-Code display). After a freeze the last line / last code is the last phase reached. */
-static void post_code(UINT8 v) { __asm__ volatile("outb %0, %1" :: "a"(v), "Nd"((UINT16)0x80)); }
+static void post_code(UINT8 v)
+{
+  /* Keep the hardware POST code and mirror every code to the persistent trace.
+   * Do not use TRACE() here because TRACE() itself calls post_code(). */
+  __asm__ volatile("outb %0, %1" :: "a"(v), "Nd"((UINT16)0x80));
+  if (CFG(S_TRACE)) {
+    CHAR16 msg[40];
+    SPrint(msg, sizeof msg, L"POST 0x%02x", (UINT32)v);
+    trace_write(msg);
+  }
+}
 static EFI_FILE_HANDLE g_trace; static BOOLEAN g_trace_tried;
 static void trace_write(const CHAR16 *msg)
 {
