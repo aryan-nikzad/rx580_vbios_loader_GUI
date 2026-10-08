@@ -18,10 +18,13 @@ ui_scale=0
 # ---- start / finish --------------------------------------------------------------------------
 # auto = start by itself after menu_timeout, menu = wait on the status page until you press a key
 boot_mode=auto
-# seconds the status page waits for a key before AUTO starts (0 = start immediately)
-menu_timeout=5
+# seconds before AUTO starts (1..30; default 1). Any key cancels the countdown and keeps the menu open.
+menu_timeout=1
 # seconds the finished status page stays on screen before the OS boot continues (0 = no pause)
 finish_secs=8
+# seconds before handing control back to firmware for OS boot (0..30; default 2).
+# Any key cancels this countdown and keeps the loader menu open.
+boot_delay=2
 # when a card could not be initialised: wait for a key instead of continuing
 hold_on_fail=1
 
