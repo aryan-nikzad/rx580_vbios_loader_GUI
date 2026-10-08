@@ -6,6 +6,16 @@ The loader uses your own ROM files during early UEFI boot, initializes the GPUs,
 
 > **Important:** This project does not include GPU vBIOS dumps, GOP images, or vendor firmware. Use your own full SPI dumps or a compatible ROM you are legally allowed to use.
 
+## Preview
+
+### Settings
+
+![RX 580 vBIOS Loader settings](screenshots/preview_settings.png)
+
+### Status
+
+![RX 580 vBIOS Loader status](screenshots/preview_status_page.png)
+
 ## Quick Setup
 
 ### 1. Clone and build
