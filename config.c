@@ -103,6 +103,7 @@ static void apply_pin(UINTN bus, UINTN dev, UINTN fn, const CHAR8 *field, UINTN 
   PIN *p = pin_find(bus, dev, fn, TRUE); if (!p) return;
   if (eqi(field, fl, "rom")) { if (eqi(v, vn, "auto") || !vn) p->rom[0] = 0; else to16(p->rom, 72, v, vn); }
   else if (eqi(field, fl, "skip")) { INT32 b; if (parse_bool(v, vn, &b)) p->skip = (BOOLEAN)b; }
+  else if (eqi(field, fl, "force")) { INT32 b; if (parse_bool(v, vn, &b)) p->force = (BOOLEAN)b; }
   else if (eqi(field, fl, "name")) to16(p->name, 24, v, vn);
   else return;
   p->origin = origin;
@@ -197,6 +198,7 @@ void cfg_save_nvram(void)
     CHAR16 pre[48]; SPrint(pre, sizeof pre, L"card.%02x:%02x.%x.", p->bus, p->dev, p->fn);
     n = put16(buf, n, pre); n = put(buf, n, "rom="); n = put16(buf, n, p->rom[0] ? p->rom : L"auto"); n = put(buf, n, "\n");
     n = put16(buf, n, pre); n = put(buf, n, p->skip ? "skip=1\n" : "skip=0\n");
+    n = put16(buf, n, pre); n = put(buf, n, p->force ? "force=1\n" : "force=0\n");
     if (p->name[0]) { n = put16(buf, n, pre); n = put(buf, n, "name="); n = put16(buf, n, p->name); n = put(buf, n, "\n"); }
   }
   if (g_romdir_origin == OR_NVRAM && g_cfg_romdir[0]) { n = put(buf, n, "rom_dir="); n = put16(buf, n, g_cfg_romdir); n = put(buf, n, "\n"); }
