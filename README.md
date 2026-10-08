@@ -362,4 +362,4 @@ See [AGENTS.md](AGENTS.md) for project-specific development workflow, architectu
 
 **Big thanks and lots of love ❤️ to Claude (Anthropic) and ChatGPT (OpenAI) for their help in building this lovely application!**
 
-**Proudly made by Reza Nikzad. Free to use, modify, sell, eat, or do whatever you want with it!**
+**Made with love by Reza Nikzad. Free to use, modify, sell, eat, or do whatever you want with it!**
