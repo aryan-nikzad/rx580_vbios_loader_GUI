@@ -316,6 +316,7 @@ static UINT32 g_last_mem;              /* MEMSIZE as printed by the last regs_li
 */
 static BOOLEAN g_last_skipped;          /* run_cand left an already-initialised card untouched */
 static BOOLEAN g_force_once;            /* a manual run from the card menu: init even if the card looks initialised */
+static BOOLEAN g_force_card;            /* persistent per-card force-init selection */
 
 static UINT32 rreg(UINT32 off)           /* BAR5 = MMIO registers on Polaris; read via physical address */
 {
@@ -689,7 +690,7 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     UINT32 s7b = c_rr(NULL, BIOS_SCRATCH_7);
     BOOLEAN trained = (m9 & 0xFF) != 0 && (m9 & 0xFF) != 0xFF &&
                       (((m9 >> 8) & 0xFF) == (m9 & 0xFF));
-    if (trained && (s7b & S7_INIT_COMPLETE) && !(g_force || g_force_once)) {
+    if (trained && (s7b & S7_INIT_COMPLETE) && !(g_force || g_force_once || g_force_card)) {
       g_last_skipped = TRUE;
       g_last_mem = rreg(R_MEMSIZE);
       lg(L"   GPU is already initialised and trained (MC_SEQ_MISC9=%08x) - leaving it untouched.\n", m9);
@@ -1004,7 +1005,7 @@ static void detect_cards(void)
 }
 
 /* ---------- helpers for one card ---------- */
-static void use_card(CARD *c) { g_hc = c; g_h = &c->hist; g_mmio = c->mmio; }
+static void use_card(CARD *c) { g_hc = c; g_h = &c->hist; g_mmio = c->mmio; g_force_card = FALSE; }
 static void remember_working(CARD *c, UINTN idx)
 {
   post_code(0x70); TRACE(L"SUCCESS %s", cands[idx].name);
@@ -1033,7 +1034,8 @@ static void process_card(CARD *c, EFI_HANDLE image, INTN manual)
 {
   UINTN ci = (UINTN)(c - g_cards), *order = g_order[ci], n = g_norder[ci];
   PIN *pin = pin_find(c->bus, c->dev, c->fn, FALSE);
-  if (pin && pin->skip && manual < 0) { c->state = CS_SKIPPED; c->rom[0] = 0; c->tried = 0; set_note(c, L"disabled in settings"); vfct_clear(c); vfct_publish(); return; }
+  g_force_card = (pin && pin->force) ? TRUE : FALSE;
+  if (pin && pin->skip && !pin->force && manual < 0) { c->state = CS_SKIPPED; c->rom[0] = 0; c->tried = 0; set_note(c, L"disabled in settings"); vfct_clear(c); vfct_publish(); return; }
   if (c->demo) { c->state = CS_RUNNING; set_activity(L"DEMO: card %d of %d (no hardware is touched)", ci + 1, g_ncards); demo_run(c); return; }
   c->note[0] = 0; c->rom[0] = 0; c->tried = 0; c->ms = 0;
   c->state = CS_RUNNING;
@@ -1048,7 +1050,7 @@ static void process_card(CARD *c, EFI_HANDLE image, INTN manual)
   if (manual >= 0) {
     g_force_once = TRUE; c->tried = 1;
     set_activity(L"Card %d/%d : running %s", ci + 1, g_ncards, cands[manual].name);
-    UINTN r = run_cand(c, (UINTN)manual, CFG(S_VFCT_ONLY), image); g_force_once = FALSE; c->ms = (UINT32)(atom_now_ms() - t0);
+    UINTN r = run_cand(c, (UINTN)manual, CFG(S_VFCT_ONLY), image); g_force_once = FALSE; g_force_card = FALSE; c->ms = (UINT32)(atom_now_ms() - t0);
     if (r == RES_OK || r == RES_VFCT) { if (r == RES_OK) remember_working(c, (UINTN)manual); c->state = CS_LOADED; StrCpy(c->rom, cands[manual].name); c->vram_mb = g_last_mem; set_note(c, r == RES_VFCT ? L"ROM published to the OS only (VFCT)" : L"initialised from ROM (manual)"); }
     else { c->state = CS_FAILED; set_note(c, r == RES_DEAD ? L"no response after reset - power-cycle" : L"ROM did not bring the card up"); vfct_clear(c); }
     vfct_publish(); if (g_want_reboot) { g_want_reboot = FALSE; } return;
@@ -1073,7 +1075,9 @@ static void process_card(CARD *c, EFI_HANDLE image, INTN manual)
     set_activity(L"Card %d/%d (%02x:%02x.%x): ROM %d - %s", ci + 1, g_ncards, c->bus, c->dev, c->fn, c->tried, cands[idx].name);
     g_want_reboot = FALSE;
     g_last_skipped = FALSE;
+    g_force_card = (pin && pin->force) ? TRUE : FALSE;
     UINTN r = run_cand(c, idx, CFG(S_VFCT_ONLY), image);
+    g_force_card = FALSE;
     c->ms = (UINT32)(atom_now_ms() - t0);
     if (r == RES_OK && g_last_skipped) {                   /* green: the card was already up, nothing was changed */
       c->state = CS_NATIVE; c->vram_mb = g_last_mem; c->rom[0] = 0; set_note(c, L"already initialised - left untouched");
@@ -1314,10 +1318,11 @@ static void card_menu(CARD *c, EFI_HANDLE image)
       rows[n].color = cands[i].did == c->did ? 0xE6EDF3 : 0x6B7785; idxmap[n++] = i;
     }
     StrCpy(rows[n].left, (pin && pin->skip) ? L"Enable this card again" : L"Disable this card (leave it alone)"); rows[n].right[0] = 0; rows[n].color = 0xFFB86B; idxmap[n++] = (UINTN)-2;
+    StrCpy(rows[n].left, (pin && pin->force) ? L"Disable forced initialization" : L"Force initialization even if green"); rows[n].right[0] = 0; rows[n].color = 0xFFB86B; idxmap[n++] = (UINTN)-3;
     SPrint(title, sizeof title, L"Card %d   %02x:%02x.%x   %04x:%04x   subsystem %04x:%04x%s%s", ci + 1, c->bus, c->dev, c->fn, AMD_VID, c->did, c->ssv, c->ssi, brand_of(c->ssv) ? L"  " : L"", brand_of(c->ssv) ? brand_of(c->ssv) : L"");
     SPrint(sub, sizeof sub, L"Pinned ROM: %s", (pin && pin->rom[0]) ? pin->rom : L"none (AUTO)");
     static UINTN sel, top; if (sel >= n) sel = 0;
-    LIST l = { title, sub, L"UP/DOWN select   ENTER run now   P pin ROM to this card   U unpin   ESC back", rows, n, sel, top };
+    LIST l = { title, sub, L"UP/DOWN select   ENTER run now   P pin   U unpin   F force init   ESC back", rows, n, sel, top };
     ui_list_draw(&l); sel = l.sel; top = l.top;
     KEY k; if (!ui_key(&k, 0)) continue;
     if (k.sc == 0x17) break;
@@ -1327,8 +1332,10 @@ static void card_menu(CARD *c, EFI_HANDLE image)
     if (k.sc == 0x0A) sel = sel + 8 < n ? sel + 8 : n - 1;
     if (k.ch == L'p' || k.ch == L'P') { if (idxmap[sel] < ncand) { pin = pin_find(c->bus, c->dev, c->fn, TRUE); if (pin) { StrCpy(pin->rom, cands[idxmap[sel]].name); pin->origin = OR_NVRAM; pin_commit(); } } }
     if (k.ch == L'u' || k.ch == L'U') { if (pin) { pin->rom[0] = 0; pin->origin = OR_NVRAM; pin_commit(); } }
+    if (k.ch == L'f' || k.ch == L'F') { pin = pin_find(c->bus, c->dev, c->fn, TRUE); if (pin) { pin->force = !pin->force; if (pin->force) pin->skip = FALSE; pin->origin = OR_NVRAM; pin_commit(); c->state = CS_PENDING; set_note(c, pin->force ? L"forced initialization enabled" : L""); } }
     if (k.ch == L'\r') {
-      if (idxmap[sel] == (UINTN)-2) { pin = pin_find(c->bus, c->dev, c->fn, TRUE); if (pin) { pin->skip = !pin->skip; pin->origin = OR_NVRAM; pin_commit(); c->state = pin->skip ? CS_SKIPPED : CS_PENDING; set_note(c, pin->skip ? L"disabled in settings" : L""); } }
+      if (idxmap[sel] == (UINTN)-2) { pin = pin_find(c->bus, c->dev, c->fn, TRUE); if (pin) { pin->skip = !pin->skip; if (pin->skip) pin->force = FALSE; pin->origin = OR_NVRAM; pin_commit(); c->state = pin->skip ? CS_SKIPPED : CS_PENDING; set_note(c, pin->skip ? L"disabled in settings" : L""); } }
+      else if (idxmap[sel] == (UINTN)-3) { pin = pin_find(c->bus, c->dev, c->fn, TRUE); if (pin) { pin->force = !pin->force; if (pin->force) pin->skip = FALSE; pin->origin = OR_NVRAM; pin_commit(); c->state = CS_PENDING; set_note(c, pin->force ? L"forced initialization enabled" : L""); } }
       else { g_force_once = TRUE; if (idxmap[sel] == (UINTN)-1) { process_card(c, image, -1); } else process_card(c, image, (INTN)idxmap[sel]); g_force_once = FALSE; text_pause(); break; }
     }
   }
@@ -1359,7 +1366,8 @@ static UINTN status_page(EFI_HANDLE image, BOOLEAN done, INTN secs)
     if (k.ch == L's' || k.ch == L'S') { ui_run_settings(); ui_init(); }
     if (k.ch == L'l' || k.ch == L'L') ui_run_log();
     if (g_ncards && (k.ch == L'd' || k.ch == L'D')) { ui_message(L"Register dump", L"Dumping GPU registers... (a freeze here is a result too: see loader_trace.txt)", NULL, FALSE); dump_registers(&g_cards[g_sel]); ui_message(L"Register dump", L"Done. The file is in the loader folder on the EFI partition.", NULL, TRUE); }
-    if (g_ncards && (k.ch == L'x' || k.ch == L'X')) { PIN *p = pin_find(g_cards[g_sel].bus, g_cards[g_sel].dev, g_cards[g_sel].fn, TRUE); if (p) { p->skip = !p->skip; p->origin = OR_NVRAM; pin_commit(); g_cards[g_sel].state = p->skip ? CS_SKIPPED : CS_PENDING; set_note(&g_cards[g_sel], p->skip ? L"disabled in settings" : L""); } }
+    if (g_ncards && (k.ch == L'x' || k.ch == L'X')) { PIN *p = pin_find(g_cards[g_sel].bus, g_cards[g_sel].dev, g_cards[g_sel].fn, TRUE); if (p) { p->skip = !p->skip; if (p->skip) p->force = FALSE; p->origin = OR_NVRAM; pin_commit(); g_cards[g_sel].state = p->skip ? CS_SKIPPED : CS_PENDING; set_note(&g_cards[g_sel], p->skip ? L"disabled in settings" : L""); } }
+    if (g_ncards && (k.ch == L'f' || k.ch == L'F')) { PIN *p = pin_find(g_cards[g_sel].bus, g_cards[g_sel].dev, g_cards[g_sel].fn, TRUE); if (p) { p->force = !p->force; if (p->force) p->skip = FALSE; p->origin = OR_NVRAM; pin_commit(); g_cards[g_sel].state = CS_PENDING; set_note(&g_cards[g_sel], p->force ? L"forced initialization enabled" : L""); } }
     if (k.ch == L'r' || k.ch == L'R') { for (UINTN i = 0; i < g_ncards; i++) hist_forget(&g_cards[i]); for (UINTN i = 0; i < g_ncards; i++) card_prepare(&g_cards[i]); ui_message(L"History cleared", L"Remembered ROMs and per-ROM results of all cards were forgotten.", L"Press A to run AUTO again.", TRUE); }
   }
 }
