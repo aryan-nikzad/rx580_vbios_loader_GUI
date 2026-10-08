@@ -265,47 +265,25 @@ static EFI_STATUS get_rom(UINTN i, ROMDATA *r)
   return extract_pe(efi, &r->pe, &r->pesz);
 }
 
-/* ---------- ACPI VFCT (one image per card; the OS picks the image by PCI bus/dev/fn) ---------- */
-typedef struct { BOOLEAN used; const UINT8 *rom; UINTN sz; UINT32 bus, dev, fn; UINT16 vid, did, ssv, ssi; } VENT;
-static VENT g_vent[MAX_CARDS];
-static BOOLEAN g_vfct_have; static UINTN g_vfct_key;
-static EFI_STATUS vfct_publish(void)
-{
-  ACPITBL *at; EFI_STATUS s = FW(BS->LocateProtocol, &gAcpiTbl, NULL, (VOID **)&at);
-  if (EFI_ERROR(s)) return s;
-  UINTN hdrsz = 76, imgh = 28, total = hdrsz, nimg = 0;
-  for (UINTN i = 0; i < MAX_CARDS; i++) if (g_vent[i].used) { total += imgh + g_vent[i].sz; nimg++; }
-  if (g_vfct_have) { FW(at->Uninstall, at, g_vfct_key); g_vfct_have = FALSE; }
-  if (!nimg) return EFI_SUCCESS;
-  UINT8 *t = AllocateZeroPool(total); if (!t) return EFI_OUT_OF_RESOURCES;
-  CopyMem(t, "VFCT", 4);
-  *(UINT32 *)(t + 4) = (UINT32)total; t[8] = 1;
-  CopyMem(t + 10, "AMDGPU", 6); CopyMem(t + 16, "VBIOSLDR", 8);
-  *(UINT32 *)(t + 24) = 1; CopyMem(t + 28, "VLDR", 4); *(UINT32 *)(t + 32) = 1;
-  *(UINT32 *)(t + 52) = (UINT32)hdrsz;
-  UINT8 *h = t + hdrsz;
-  for (UINTN i = 0; i < MAX_CARDS; i++) {
-    VENT *e = &g_vent[i]; if (!e->used) continue;
-    *(UINT32 *)(h + 0) = e->bus; *(UINT32 *)(h + 4) = e->dev; *(UINT32 *)(h + 8) = e->fn;
-    *(UINT16 *)(h + 12) = e->vid; *(UINT16 *)(h + 14) = e->did;
-    *(UINT16 *)(h + 16) = e->ssv; *(UINT16 *)(h + 18) = e->ssi;
-    *(UINT32 *)(h + 24) = (UINT32)e->sz;
-    CopyMem(h + imgh, (VOID *)e->rom, e->sz);
-    h += imgh + e->sz;
-  }
-  UINT8 sum = 0; for (UINTN i = 0; i < total; i++) sum += t[i];
-  t[9] = (UINT8)(0 - sum);
-  UINTN key = 0; s = FW(at->Install, at, t, total, &key);
-  if (!EFI_ERROR(s)) { g_vfct_key = key; g_vfct_have = TRUE; }
-  FreePool(t); return s;
-}
+/* ---------- ACPI VFCT disabled ---------- */
+/*
+ * VFCT is intentionally disabled in the Atom handoff path.
+ * The loader's PCI ROM handoff is sufficient for Linux (PciIo->RomImage),
+ * while installing/replacing an ACPI VFCT table can destabilize firmware.
+ * Keep these helpers as no-ops so legacy menu/error paths cannot publish it.
+ */
 static void vfct_set(CARD *c, const UINT8 *rom, UINTN romsz, UINT16 vid, UINT16 did)
 {
-  UINTN k = (UINTN)(c - g_cards); if (k >= MAX_CARDS) return;
-  VENT *e = &g_vent[k]; e->used = TRUE; e->rom = rom; e->sz = romsz; e->bus = (UINT32)c->bus; e->dev = (UINT32)c->dev; e->fn = (UINT32)c->fn;
-  e->vid = vid; e->did = did; e->ssv = c->ssv; e->ssi = c->ssi;
+  (void)c; (void)rom; (void)romsz; (void)vid; (void)did;
 }
-static void vfct_clear(CARD *c) { UINTN k = (UINTN)(c - g_cards); if (k < MAX_CARDS) g_vent[k].used = FALSE; }
+static void vfct_clear(CARD *c)
+{
+  (void)c;
+}
+static EFI_STATUS vfct_publish(void)
+{
+  return EFI_SUCCESS;
+}
 
 /* ---------- GPU register access + watchdog heartbeat ---------- */
 static UINT64 g_mmio; static UINTN g_sec;
