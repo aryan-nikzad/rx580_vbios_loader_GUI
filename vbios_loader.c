@@ -675,32 +675,53 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     struct atom_context *actx = amdgpu_atom_parse(&card, bios);
     if (!actx) { lg(L"   AtomBIOS parse failed (not a usable ROM)\n"); FreePool(bios); if (idx < NRES) { g_st.res[idx] = 2; state_save(); } return RES_SKIP; }
     lg(L"   [A5] AtomBIOS parsed. Checking whether the GPU is already initialised...\n"); post_code(0xA5);
+
     /*
-     * A working vBIOS chip, the motherboard firmware, or an earlier loader pass
-     * can leave this GPU fully trained before we get here. Do not run ASIC_Init
-     * again in that case: re-POSTing an already trained Polaris card can corrupt
-     * its state or hang the machine.
+     * Default green detection is identity-based:
+     *   - any subsystem vendor other than AMD (0x1002) is treated as having a
+     *     live board-vBIOS/SPI identity, so the card is left completely alone;
+     *   - AMD subsystem vendor (0x1002) means the board identity path is the
+     *     generic AMD ID, which is the loader's dead-SPI case, so real hardware
+     *     state must be checked before deciding that the card is already POSTed.
      *
-     * This is deliberately a narrow probe. MC_SEQ_MISC9 is used to confirm that
-     * the memory controller is trained, while BIOS_SCRATCH_7 bit 9 is the
-     * AtomBIOS "initialisation complete" flag. We only read these after the
-     * AtomBIOS parser has been created and the PCI BAR has been enabled.
+     * F / forced initialization always overrides the green decision, including
+     * the per-card force flag and the one-shot manual run.
      */
-    UINT32 m9 = c_rr(NULL, R_MC_SEQ_MISC9);
-    UINT32 s7b = c_rr(NULL, BIOS_SCRATCH_7);
-    BOOLEAN trained = (m9 & 0xFF) != 0 && (m9 & 0xFF) != 0xFF &&
-                      (((m9 >> 8) & 0xFF) == (m9 & 0xFF));
-    if (trained && (s7b & S7_INIT_COMPLETE) && !(g_force || g_force_once || g_force_card)) {
+    BOOLEAN force_init = g_force || g_force_once || g_force_card;
+    if (!force_init && ssv != AMD_VID) {
       g_last_skipped = TRUE;
       g_last_mem = rreg(R_MEMSIZE);
-      lg(L"   GPU is already initialised and trained (MC_SEQ_MISC9=%08x) - leaving it untouched.\n", m9);
-      TRACE(L"already initialised, skipped (MISC9=%08x SCRATCH7=%08x)", m9, s7b);
+      lg(L"   Subsystem vendor is %04x (not AMD %04x) - treating card as green and leaving it untouched.\n", ssv, AMD_VID);
+      TRACE(L"green by subsystem vendor %04x, skipped", ssv);
       if (idx < NRES) { g_st.res[idx] = 4; state_save(); }
       if (bios_pad) FreePool(bios_pad);
       FreePool(r.rom);
       return RES_OK;
     }
-    lg(L"   GPU is not already initialised; proceeding with ASIC_Init.\n");
+
+    /*
+     * AMD subsystem vendor: do the hardware-state check. This protects the
+     * motherboard-initialised card while allowing generic-AMD cards whose SPI
+     * identity is unavailable to be POSTed by the loader.
+     */
+    UINT32 m9 = c_rr(NULL, R_MC_SEQ_MISC9);
+    UINT32 s7b = c_rr(NULL, BIOS_SCRATCH_7);
+    UINT32 mem = rreg(R_MEMSIZE);
+    BOOLEAN trained = (m9 & 0xFF) != 0 && (m9 & 0xFF) != 0xFF &&
+                      (((m9 >> 8) & 0xFF) == (m9 & 0xFF));
+    lg(L"   AMD-subsystem hardware check: MEMSIZE=%08x [A5.3] MC_SEQ_MISC9=%08x [A5.4] BIOS_SCRATCH_7=%08x [A5.5]\\n",
+       mem, m9, s7b);
+    if (trained && (s7b & S7_INIT_COMPLETE) && !force_init) {
+      g_last_skipped = TRUE;
+      g_last_mem = mem;
+      lg(L"   AMD-subsystem GPU is already initialised and trained - leaving it untouched.\n");
+      TRACE(L"already initialised, skipped (MEMSIZE=%08x MISC9=%08x SCRATCH7=%08x)", mem, m9, s7b);
+      if (idx < NRES) { g_st.res[idx] = 4; state_save(); }
+      if (bios_pad) FreePool(bios_pad);
+      FreePool(r.rom);
+      return RES_OK;
+    }
+    lg(L"   GPU requires ASIC_Init%s.\n", force_init ? L" (forced)" : "");
     /* Do not perform an EFI Runtime SetVariable while the GPU is being brought up. */
     if (idx < NRES) { g_st.res[idx] = 1; }
     lg(L"   [A5.1] preparing SPI/MC emulation...\n"); post_code(0xA6);
