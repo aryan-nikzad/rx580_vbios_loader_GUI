@@ -284,6 +284,28 @@ For systems with several RX 580 cards:
 
 The exact result depends on the GPU, ROM, motherboard firmware, and card state. Low-level GPU initialization can hang or reset a machine if the ROM is incompatible.
 
+## Multi-GPU VFCT: identical RX 580 PCI IDs
+
+Some Linux kernels accept the first VFCT image whose vendor/device and slot/function match, even when its PCI bus number differs. With several RX 580s that all identify as `1002:67df` at `00.0`, this can cause Linux to use one card's VBIOS for every card. The kernel log looks like:
+
+```text
+VFCT bus number mismatch: table 12 != runtime 1, matching by device identity
+```
+
+The EFI loader cannot fully correct that kernel-side first-match behavior by changing ROM assignments alone. This repository includes a proposed kernel patch:
+
+- [`patches/linux-amdgpu-vfct-exact-bdf.patch`](patches/linux-amdgpu-vfct-exact-bdf.patch)
+
+The patch makes the AMDGPU driver search for an exact PCI bus/device/function match first. A bus-mismatched fallback is used only when there is exactly one identity-only candidate; ambiguous candidates are not guessed. Apply it to the source for the kernel you actually boot, rebuild/install that kernel, and keep a known-working kernel entry available until the patched kernel is verified. The patch has not been built against every distribution kernel, so review/apply it against the matching kernel source version rather than blindly replacing a working kernel.
+
+This branch also adds per-entry VFCT diagnostics to `EFI/vbios_loader/loader_trace.txt`. After installing the updated EFI binary, check that the trace lists the expected ROM and BDF for every published entry. After boot, check:
+
+```bash
+sudo dmesg | grep -Ei 'amdgpu.*(vfct|vbios|bios)'
+```
+
+Each GPU should use its exact-BDF VFCT entry. The BIOS identifier string by itself is not a reliable way to distinguish ROM files; compare ROM hashes or inspect the actual published VFCT records.
+
 ## Troubleshooting
 
 ### Linux freezes after the loader successfully initializes the GPUs

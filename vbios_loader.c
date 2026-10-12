@@ -1265,9 +1265,12 @@ static EFI_STATUS vfct_install_all(void)
       if (!dup) im[n++] = fw[i];
     }
   }
-  for (UINTN i = 0; i < n; i++)
+  TRACE(L"VFCT records: loader=%u firmware=%u total=%u", (UINT32)nours, (UINT32)(n - nours), (UINT32)n);
+  for (UINTN i = 0; i < n; i++) {
     lg(L"   [VFCT] image %u: %02x:%02x.%x %04x:%04x subsys %04x:%04x, %u bytes%s\n", (UINT32)i, im[i].bus, im[i].dev, im[i].fn, (UINT32)im[i].vid, (UINT32)im[i].did,
        (UINT32)im[i].ssv, (UINT32)im[i].ssi, im[i].len, i < nours ? L"" : L"  (from firmware VFCT)");
+    TRACE(L"VFCT image %u: %02x:%02x.%x %04x:%04x bytes=%u%s", (UINT32)i, im[i].bus, im[i].dev, im[i].fn, (UINT32)im[i].vid, (UINT32)im[i].did, im[i].len, i < nours ? L"" : L" firmware");
+  }
   TRACE(L"VFCT: %d image(s), %d bytes, mode %d", (UINT32)n, vfct_total(im, n), (UINT32)mode);
 
   EFI_STATUS s = EFI_UNSUPPORTED;
