@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] drm/amdgpu: prefer exact BDF when selecting VFCT VBIOS
+
+When multiple identical AMD GPUs are present, accepting the first VFCT
+entry with a matching vendor/device and slot/function can make every GPU
+consume the first card's VBIOS. A bus-mismatched entry must be a fallback,
+not an immediate match.
+
+Search the complete VFCT table for an exact bus/device/function match
+first. Only use the identity-only fallback when exactly one entry matches
+that identity; if several candidates exist, refuse to guess and let the
+normal BIOS fallback paths run.
+
+---
+ drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c | 48 ++++++++++++++++++++++----------
+ 1 file changed, 34 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c
+index 000000000000..111111111111 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c
+@@ -392,15 +392,16 @@ static int amdgpu_acpi_vfct_match(struct amdgpu_device *adev,
+  * @vhdr: VFCT image header to check
+  *
+  * VFCT entries contain the PCI bus number as recorded during BIOS POST.
+- * On systems where the kernel renumbers PCI buses (e.g. pci=realloc or
+- * resource conflicts), the runtime bus number may differ from the POST
+- * value.  Match by device identity (vendor + device + function) and use
+- * the bus number as a preference: exact bus match is preferred, but when
+- * the bus numbers disagree we accept the entry if the device identity
+- * matches.
++ * Exact BDF is required for an unambiguous match. A bus-mismatched
++ * identity match is only a fallback for systems that renumber PCI buses;
++ * the caller must ensure that the fallback is unique.
+  *
+- * Returns: 0 on match, -ENODEV on no match
++ * Returns: 0 for exact BDF, -EAGAIN for identity-only fallback, -ENODEV
++ * when the entry does not match the device identity.
+  */
+ static int amdgpu_acpi_vfct_match(struct amdgpu_device *adev,
+ 				  VFCT_IMAGE_HEADER *vhdr)
+@@ -414,11 +415,7 @@ static int amdgpu_acpi_vfct_match(struct amdgpu_device *adev,
+ 	if (vhdr->PCIBus == adev->pdev->bus->number)
+ 		return 0;
+ 
+-	/* Bus mismatch but device identity matches (PCI renumbering case) */
+-	dev_notice(adev->dev,
+-		   "VFCT bus number mismatch: table %u != runtime %u, matching by device identity (vendor 0x%04x device 0x%04x)\n",
+-		   vhdr->PCIBus, adev->pdev->bus->number,
+-		   adev->pdev->vendor, adev->pdev->device);
+-	return 0;
++	/* Remember this only as a fallback; a later entry may match exact BDF. */
++	return -EAGAIN;
+ }
+ 
+ static bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
+@@ -427,6 +424,9 @@ static bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
+ 	UEFI_ACPI_VFCT *vfct;
+ 	unsigned int offset;
+ 	bool r = false;
++	GOP_VBIOS_CONTENT *selected = NULL, *fallback = NULL;
++	unsigned int fallback_count = 0;
++	int match;
+ 
+ 	if (!ACPI_SUCCESS(acpi_get_table("VFCT", 1, &hdr)))
+ 		return false;
+@@ -456,23 +456,43 @@ static bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
+ 			goto out;
+ 		}
+ 
+-		if (vhdr->ImageLength &&
+-		    !amdgpu_acpi_vfct_match(adev, vhdr)) {
+-			adev->bios = kmemdup(&vbios->VbiosContent,
+-					     vhdr->ImageLength,
+-					     GFP_KERNEL);
+-
+-			if (!check_atom_bios(adev, vhdr->ImageLength)) {
+-				amdgpu_bios_release(adev);
+-				goto out;
+-			}
+-			adev->bios_size = vhdr->ImageLength;
+-			r = true;
+-			goto out;
++		if (!vhdr->ImageLength)
++			continue;
++
++		match = amdgpu_acpi_vfct_match(adev, vhdr);
++		if (!match) {
++			selected = vbios;
++			break; /* exact BDF always wins, regardless of table order */
++		}
++		if (match == -EAGAIN) {
++			fallback = vbios;
++			fallback_count++;
+ 		}
+ 	}
+ 
+-	dev_info(adev->dev, "ACPI VFCT table present but broken (too short #2),skipping\n");
++	if (!selected && fallback_count == 1)
++		selected = fallback;
++	else if (!selected && fallback_count > 1)
++		dev_warn(adev->dev,
++			 "VFCT has %u ambiguous bus-mismatched VBIOS entries; refusing to guess\n",
++			 fallback_count);
++
++	if (selected) {
++		vhdr = &selected->VbiosHeader;
++		adev->bios = kmemdup(&selected->VbiosContent,
++				     vhdr->ImageLength, GFP_KERNEL);
++		if (!check_atom_bios(adev, vhdr->ImageLength)) {
++			amdgpu_bios_release(adev);
++			goto out;
++		}
++		adev->bios_size = vhdr->ImageLength;
++		r = true;
++	} else if (!fallback_count) {
++		dev_info(adev->dev,
++			 "VFCT has no VBIOS entry matching this device; skipping\n");
++	}
+ 
+ out:
+ 	acpi_put_table(hdr);
