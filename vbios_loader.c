@@ -1274,8 +1274,21 @@ static EFI_STATUS vfct_install_all(void)
   TRACE(L"VFCT: %d image(s), %d bytes, mode %d", (UINT32)n, vfct_total(im, n), (UINT32)mode);
 
   EFI_STATUS s = EFI_UNSUPPORTED;
-  /* a firmware VFCT is only replaceable through the XSDT; two VFCT tables would make the kernel use the first one */
-  BOOLEAN use_proto = (mode == VM_ACPI) || (mode == VM_AUTO && !g_fw_vfct && !g_vfct_mem);
+  /*
+   * If firmware already supplied a VFCT, replace that table in the XSDT.
+   * Installing a second VFCT through EFI_ACPI_TABLE_PROTOCOL is not enough:
+   * Linux may consume the original table first and never see our per-card ROMs.
+   * This override takes precedence over VM_ACPI because publishing a duplicate
+   * cannot safely replace an existing firmware VFCT.
+   */
+  if (g_fw_vfct && g_fw_vfct_len) {
+    s = vfct_install_xsdt(im, n);
+    lg(L"   [VFCT] replacing firmware VFCT through XSDT: %r\n", s);
+    TRACE(L"VFCT: firmware-table replacement returned %r", s);
+    return s;
+  }
+
+  BOOLEAN use_proto = (mode == VM_ACPI) || (mode == VM_AUTO && !g_vfct_mem);
   if (use_proto || g_vfct_proto_have) {
     s = vfct_install_proto(im, n);
     lg(L"   [VFCT] EFI_ACPI_TABLE_PROTOCOL: %r\n", s);
