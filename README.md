@@ -16,6 +16,38 @@ The loader uses your own ROM files during early UEFI boot, initializes the GPUs,
 
 ![RX 580 vBIOS Loader settings](screenshots/preview_settings.png)
 
+## Automated AIO Installer (Ubuntu)
+
+The repository includes `aio-installer.sh`. It automates the dependency installation, companion ROM checkout, patched kernel build/install, EFI build, and EFI installation.
+
+From the project directory:
+
+```bash
+sudo bash ./aio-installer.sh
+```
+
+By default it:
+
+1. Installs all build dependencies using `apt` from inside the script.
+2. Clones or fast-forward-updates `../rx580_dumps`, beside this repository.
+3. Copies the dump repository's `.rom` files into this project's `vbioses/` directory without overwriting existing files.
+4. Determines the source package/version for the currently installed kernel, enables source repositories if needed, and downloads that exact source.
+5. Checks that `patches/linux-amdgpu-vfct-exact-bdf.patch` applies cleanly before building a separate kernel.
+6. Installs the patched kernel alongside the existing kernel, preserving the current kernel as a fallback.
+7. Builds `vbios_loader.efi` and invokes the existing `./install_linux.sh` installer.
+
+Useful options:
+
+```bash
+sudo bash ./aio-installer.sh --manual
+sudo bash ./aio-installer.sh --efi-only
+sudo bash ./aio-installer.sh --kernel-only
+sudo bash ./aio-installer.sh --dry-run
+sudo bash ./aio-installer.sh --jobs 4
+```
+
+**Important:** a full kernel build can take a long time and require substantial free disk space. If the exact source package is unavailable or the patch does not apply, the script stops rather than silently building an unpatched kernel. The kernel patch has not been verified against every Ubuntu kernel release. After installation, boot the new kernel from GRUB's **Advanced options** for the first test; the script does not reboot automatically or remove the existing kernel. Keep a working kernel available. The script does not flash GPU firmware.
+
 ## Quick Setup
 
 ### 1. Clone and build
