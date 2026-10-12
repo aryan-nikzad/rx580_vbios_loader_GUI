@@ -109,7 +109,7 @@ if [ "$DO_KERNEL" = 1 ]; then
     run apt-get source "$SRC_PKG=$SRC_VER"
   else
     (cd "$WORKDIR/kernel-source" && apt-get source "$SRC_PKG=$SRC_VER") || die "Could not download exact source. No kernel was installed."
-    SRC_DIR="$(find "$WORKDIR/kernel-source" -mindepth 1 -maxdepth 4 -type f -path '*/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c' -printf '%h\n' | sed 's#/drivers/gpu/drm/amd/amdgpu$##' | head -n 1)"
+    SRC_DIR="$(find "$WORKDIR/kernel-source" -mindepth 1 -type f -path '*/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c' -printf '%h\n' | sed 's#/drivers/gpu/drm/amd/amdgpu$##' | head -n 1)"
     [ -n "$SRC_DIR" ] && [ -f "$SRC_DIR/Makefile" ] || die "Cannot locate extracted kernel source."
     [ -r "/boot/config-$RUNNING" ] || die "Missing /boot/config-$RUNNING."
     [ -x "$SRC_DIR/scripts/config" ] || die "Kernel source has no scripts/config."
@@ -126,8 +126,8 @@ if [ "$DO_KERNEL" = 1 ]; then
     log "Compiling kernel $NEWREL with $JOBS jobs."
     make -C "$SRC_DIR" -j"$JOBS" LOCALVERSION=-vfctfix KDEB_PKGVERSION="$SRC_VER+vfctfix1" bindeb-pkg
     PARENT="$(dirname "$SRC_DIR")"
-    IMAGE_DEB="$(find "$PARENT" -maxdepth 1 -type f \( -name "linux-image-unsigned-$NEWREL"_*.deb -o -name "linux-image-$NEWREL"_*.deb \) -print -quit)"
-    HEADER_DEB="$(find "$PARENT" -maxdepth 1 -type f -name "linux-headers-$NEWREL"_*.deb -print -quit)"
+    IMAGE_DEB="$(find "$PARENT" -maxdepth 1 -type f \( -name "linux-image-unsigned-$NEWREL""_*.deb" -o -name "linux-image-$NEWREL""_*.deb" \) -print -quit)"
+    HEADER_DEB="$(find "$PARENT" -maxdepth 1 -type f -name "linux-headers-$NEWREL""_*.deb" -print -quit)"
     [ -n "$IMAGE_DEB" ] && [ -n "$HEADER_DEB" ] || die "Build finished but expected image/header packages were not found; inspect $PARENT."
     confirm "Install new kernel packages? Existing kernel $RUNNING will not be removed."
     dpkg -i "$IMAGE_DEB" "$HEADER_DEB"
