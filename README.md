@@ -115,23 +115,41 @@ This is a workaround for a runtime power-management/reinitialization limitation,
 
 Results depend on the GPU, ROM, motherboard firmware, and current card state. Low-level initialization with an incompatible ROM can hang or reset the machine.
 
-### Optional Linux kernel patch for mixed vBIOS sources
+### Optional Linux kernel patch: AMDGPU VFCT BIOS matching
 
-Patch directory: [`vfct/`](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/tree/main/vfct)  
-Patch file: [Prefer an exact PCI bus match when selecting a VFCT entry](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/blob/main/vfct/0001-drm-amdgpu-prefer-exact-bus-match-when-selecting-VFC.patch)
+- **Patch directory:** [`vfct/`](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/tree/main/vfct)
+- **Patch file:** [Prefer an exact PCI bus match when selecting a VFCT entry](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/blob/main/vfct/0001-drm-amdgpu-prefer-exact-bus-match-when-selecting-VFC.patch)
 
-This patch is optional, is not part of the loader, and is relevant only to systems affected by incorrect VFCT entry selection.
+This is a **Linux kernel workaround**, not a feature or requirement of this loader. The underlying issue can occur even when this loader is not installed or used.
 
-**What it changes:** Linux normally tries its standard vBIOS acquisition paths first, which can include reading the card's physical SPI flash. VFCT is a fallback source when the normal path does not provide a usable BIOS. The patch does not change that source order; it changes matching order within VFCT:
+#### The problem
 
-1. Search for an entry matching the current GPU's PCI bus number and device identity (vendor, device, slot, and function).
-2. If no exact-bus match exists, retain the kernel's original identity-based fallback, which can accept an entry whose recorded bus number differs.
+Linux can obtain a GPU's vBIOS through its normal BIOS-acquisition paths, including the card's physical SPI flash. If those paths do not provide a usable BIOS, the AMDGPU driver can fall back to the system firmware's ACPI **VFCT** table, which may contain vBIOS images for multiple GPUs.
 
-Without the first pass, the driver may stop at an earlier VFCT entry for another GPU with the same device identity, even when a correct entry for the current bus appears later in the table.
+The PCI bus number assigned to a GPU at runtime by Linux may differ from the bus number recorded for that GPU in VFCT. A difference is not, by itself, proof of a fault. The issue addressed here is how the driver chooses an entry when the table contains multiple GPUs with the same vendor, device, slot, and function identity: the existing matching logic can accept an entry with a different bus number and stop at the first match. As a result, a GPU may receive another card's vBIOS even though an entry with its exact runtime bus number exists later in the table.
 
-The reported reproduction involved two RX 580 / Polaris 10 cards from different board vendors on an ASUS B250 mining motherboard. VFCT contained entries for bus 1 and bus 12, but the card at bus 12 received the bus 1 vBIOS. A wrong board's vBIOS can contribute to initialization errors such as `UVD not responding` or a fatal GPU initialization error.
+Different board vendors or models can use different power, clock, and memory tables in their vBIOS images. Selecting the wrong image can therefore contribute to GPU initialization failures, including errors such as `UVD not responding` or a fatal error during GPU initialization.
 
-This is a targeted workaround, not proof that all mixed SPI/VFCT failures have the same cause. It modifies Linux kernel `amdgpu` code, not the loader. Review the patch, apply it to a compatible kernel source tree, and rebuild/install the kernel as appropriate for your distribution. Kernel versions may differ, so the patch may need adjustment or may not apply cleanly. Keep a known-working kernel available before testing.
+#### What the patch changes
+
+The patch changes matching order **within the VFCT fallback**. It does not change the overall BIOS source-selection order:
+
+1. Linux tries its normal vBIOS acquisition paths.
+2. If it needs VFCT, the driver searches first for an entry matching the runtime PCI bus number and device identity.
+3. Only if no exact-bus entry exists does it use the original identity-based fallback, which can accept an entry whose recorded bus number differs.
+
+This preserves the original fallback for systems where an exact bus-number match is unavailable, while avoiding an earlier mismatched entry shadowing an exact match later in the table.
+
+#### Reported reproduction
+
+The issue was reproduced with two RX 580 / Polaris 10 GPUs (`1002:67df`) from different board vendors on an ASUS B250 mining motherboard. VFCT contained entries for bus 1 and bus 12, but the GPU at bus 12 was given the bus 1 image.
+
+#### Scope and cautions
+
+- Consider this patch only if the symptoms and VFCT matching behavior are relevant to your system; it is not a universal fix for GPU initialization failures.
+- It modifies Linux kernel `amdgpu` code, not the UEFI loader.
+- Review the patch and apply it to a compatible Linux kernel source tree. Kernel versions may differ, so it may need adjustment or may not apply cleanly.
+- Rebuilding and installing a kernel carries risk. Keep a known-working kernel available and ensure you can boot it before testing.
 
 ## Troubleshooting
 
