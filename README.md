@@ -36,9 +36,9 @@ A **complete SPI dump from the same card** is preferred when available. Do not t
 sudo sh install_linux.sh
 ```
 
-The installer copies the loader and `vbioses/` to `EFI/vbios_loader/` on the EFI System Partition and creates a UEFI boot entry named **RX580 loader**, placing it first in the boot order. Reboot to start the loader.
+The installer copies the loader and `vbioses/` to `EFI/vbios_loader/` on the EFI System Partition and adds an **RX580 vBIOS Loader** entry at the beginning of GRUB's menu. It does not make the loader a separate first-priority UEFI boot entry: that path returns to motherboard firmware after the EFI application exits, which can disturb the GPU/VFCT state on affected systems. With the usual `GRUB_DEFAULT=0`, the loader entry runs first automatically. If the loader exits back to GRUB, the installer-generated entry marks that it has already run for this boot, reloads the GRUB menu, and gives the normal default OS entry a short 3-second timeout. The marker exists only in GRUB's current runtime environment and is not persisted across reboots.
 
-**Before installing:** confirm that the machine is booted in UEFI mode and the EFI partition is mounted at `/boot/efi`. If it is mounted elsewhere, pass its mount path, for example: `sudo env ESP=/your/efi/path sh install_linux.sh`.
+**Before installing:** confirm that the machine is booted in UEFI mode, GRUB is installed, and the EFI partition is mounted at `/boot/efi`. If it is mounted elsewhere, pass its mount path, for example: `sudo env ESP=/your/efi/path sh install_linux.sh`. The installer updates GRUB and removes an older `RX580 loader` UEFI boot entry created by previous versions, if `efibootmgr` is available. It does not overwrite an unrelated file at `/etc/grub.d/06_rx580_vbios_loader`.
 
 ### 4. Configure each card once
 
