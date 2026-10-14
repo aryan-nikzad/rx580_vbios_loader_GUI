@@ -68,12 +68,12 @@ cat > "$TMP_HOOK" <<EOF
 #!/bin/sh
 # $MARKER
 cat <<'RX580_GRUB_EOF'
-if [ "${rx580_loader_ran}" = "1" ]; then
+if [ "\${rx580_loader_ran}" = "1" ]; then
     set timeout=3
     set timeout_style=menu
 fi
 
-if [ "${rx580_loader_ran}" != "1" ]; then
+if [ "\${rx580_loader_ran}" != "1" ]; then
 menuentry 'RX580 vBIOS Loader (run before OS)' --id rx580-vbios-loader {
     set rx580_loader_ran=1
     save_env rx580_loader_ran
@@ -90,7 +90,7 @@ fi
 # This runs only while parsing the reloaded config, after the loader returned.
 # The current menu has already omitted the loader entry; clear the saved marker
 # now so a future reboot can run the loader again.
-if [ "${rx580_loader_ran}" = "1" ]; then
+if [ "\${rx580_loader_ran}" = "1" ]; then
     set rx580_loader_ran=
     save_env rx580_loader_ran
 fi
