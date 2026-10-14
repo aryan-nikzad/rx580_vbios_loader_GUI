@@ -1107,7 +1107,7 @@ static void process_card(CARD *c, EFI_HANDLE image, INTN manual)
       if (was_pin || was_working) {                                                   /* preserve the ROM selected for this card */
         StrCpy(c->rom, cands[idx].name);
         if (was_pin) { g_st.pinstrikes = 0; state_save(); }                           /* skipped cards must not consume their pin */
-        lg(L"   [VFCT] already-initialised card %02x:%02x.%x: publishing %s to the OS\\n", c->bus, c->dev, c->fn, cands[idx].name);
+        lg(L"   [VFCT] already-initialised card %02x:%02x.%x: publishing %s to the OS\n", c->bus, c->dev, c->fn, cands[idx].name);
       }
       else { vfct_clear(c); }                                                         /* do not hand the OS an unselected ROM */
       vfct_publish(); return;
