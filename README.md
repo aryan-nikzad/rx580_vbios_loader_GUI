@@ -197,6 +197,14 @@ See [AGENTS.md](AGENTS.md) for architecture notes, development workflow, build r
 - Terminus-derived bitmap font: see [LICENSES-FONT-TERMINUS.txt](LICENSES-FONT-TERMINUS.txt).
 - vBIOS dumps, SPI images, GOP images, and other vendor firmware are excluded and are **not covered** by the project's MIT license.
 
+## Note on AI assistance
+
+Most things in this project were created with AI assistance, so there may be mistakes in the information or code, especially in this README. Please verify important details before relying on them.
+
+---
+
 ## Credits
 
-Created by **Reza Nikzad**, with assistance from Claude (Anthropic) and ChatGPT (OpenAI).
+**Big thanks and lots of love ❤️ to Claude (Anthropic) and ChatGPT (OpenAI) for their help in building this lovely application!**
+
+**Made with love by Reza Nikzad. Free to use, modify, sell, eat, or do whatever you want with it!**
