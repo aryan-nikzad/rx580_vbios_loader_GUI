@@ -149,7 +149,6 @@ The normal setup can be completely automatic. You only need to choose the ROM fo
 ### First boot
 
 After installation, reboot.
-
 The loader shows one card for each detected GPU. Let the loader finish detecting the cards.
 
 If you want to configure a card manually:
@@ -283,6 +282,16 @@ For systems with several RX 580 cards:
 - The loader publishes one selected ROM per card to Linux through ACPI/VFCT.
 
 The exact result depends on the GPU, ROM, motherboard firmware, and card state. Low-level GPU initialization can hang or reset a machine if the ROM is incompatible.
+
+### Mixed vBIOS sources: optional amdgpu/VFCT patch
+
+**This patch is not part of the loader and is not required for every system.** It may be needed on affected multi-GPU systems where some GPUs provide their vBIOS through their physical SPI flash and other GPUs get their vBIOS from this loader through ACPI/VFCT.
+
+On affected systems, the Linux `amdgpu` driver may incorrectly use the same vBIOS for multiple GPUs (for example, the first card's vBIOS) instead of using the correct per-card vBIOS. The patch in the repository's [`vfct/` directory](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/tree/main/vfct) modifies the kernel/`amdgpu` code path to address this behavior.
+
+The exact underlying cause has not been conclusively identified by the project maintainer. This appears to be a kernel/`amdgpu` VFCT handling issue, not a bug in the RX 580 vBIOS Loader application itself. Applying the patch is an optional workaround for systems that exhibit this mixed-source, multi-GPU problem.
+
+**Important:** This is a Linux kernel driver source patch, not a loader setting or an application patch. Review the patch and instructions in [`vfct/`](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/tree/main/vfct), apply it to the relevant kernel source, and rebuild/install the patched kernel as appropriate for your distribution. Keep a working kernel available so you can boot back into it if needed. Do not apply it unless you understand the changes and have confirmed that you are affected by this issue.
 
 ## Troubleshooting
 
