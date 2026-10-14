@@ -1,0 +1,146 @@
+From 88d00d6402a08e59dd0bee9a8b26ad760a631091 Mon Sep 17 00:00:00 2001
+From: Reza Nikzad Chaleshori <rezanikzadch@gmail.com>
+Date: Wed, 14 Oct 2026 05:55:22 +0000
+Subject: [PATCH] drm/amdgpu: prefer exact bus match when selecting VFCT VBIOS
+ image
+
+amdgpu_acpi_vfct_match() accepts an entry whose bus number differs from
+the runtime bus number as long as vendor, device, slot and function
+match. The caller takes the first entry that matches and stops.
+
+On systems with several GPUs of the same model (e.g. mining boards) every
+card matches every entry on vendor/device/function, so an earlier entry
+is selected for a later card even when the table contains an entry with
+the exact bus number. The later card then runs with another board's
+VBIOS (different power/clock/memory tables) and can fail to initialize,
+for example with "UVD not responding" and a fatal error during GPU init.
+
+Search the table first for an exact bus match, and only if none exists
+fall back to matching by device identity.
+
+Reproduced with two RX 580 (Polaris10, 1002:67df) from different vendors
+on an ASUS B250 mining board: VFCT holds entries for bus 1 and bus 12,
+the card at bus 12 was given the bus 1 image.
+
+Signed-off-by: Reza Nikzad Chaleshori <rezanikzadch@gmail.com>
+---
+ drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c | 71 +++++++++++++++---------
+ 1 file changed, 46 insertions(+), 25 deletions(-)
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c
+index f9315e047..d42485e6b 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c
+@@ -441,10 +441,15 @@ static bool amdgpu_read_disabled_bios(struct amdgpu_device *adev)
+  * the bus numbers disagree we accept the entry if the device identity
+  * matches.
+  *
++ * @exact: if true, only an exact bus number match is accepted.  The caller
++ * first searches the whole table with @exact set, and only retries with it
++ * cleared when no entry matched exactly, so that an earlier entry for an
++ * identical card on a different bus cannot shadow the correct one.
++ *
+  * Returns: 0 on match, -ENODEV on no match
+  */
+ static int amdgpu_acpi_vfct_match(struct amdgpu_device *adev,
+-				  VFCT_IMAGE_HEADER *vhdr)
++				  VFCT_IMAGE_HEADER *vhdr, bool exact)
+ {
+ 	/* Vendor and device IDs must always match */
+ 	if (vhdr->VendorID != adev->pdev->vendor ||
+@@ -459,6 +464,9 @@ static int amdgpu_acpi_vfct_match(struct amdgpu_device *adev,
+ 	if (vhdr->PCIBus == adev->pdev->bus->number)
+ 		return 0;
+ 
++	if (exact)
++		return -ENODEV;
++
+ 	/* Bus mismatch but device identity matches (PCI renumbering case) */
+ 	dev_notice(adev->dev,
+ 		   "VFCT bus number mismatch: table %u != runtime %u, matching by device identity (vendor 0x%04x device 0x%04x)\n",
+@@ -474,6 +482,7 @@ static bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
+ 	UEFI_ACPI_VFCT *vfct;
+ 	unsigned int offset;
+ 	bool r = false;
++	bool exact;
+ 
+ 	if (!ACPI_SUCCESS(acpi_get_table("VFCT", 1, &hdr)))
+ 		return false;
+@@ -484,38 +493,50 @@ static bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
+ 	}
+ 
+ 	vfct = (UEFI_ACPI_VFCT *)hdr;
+-	offset = vfct->VBIOSImageOffset;
+ 
+-	while (offset < tbl_size) {
+-		GOP_VBIOS_CONTENT *vbios = (GOP_VBIOS_CONTENT *)((char *)hdr + offset);
+-		VFCT_IMAGE_HEADER *vhdr = &vbios->VbiosHeader;
++	/*
++	 * Pass 1 looks for an entry whose bus number matches exactly.  Only if
++	 * there is none does pass 2 accept an entry that matches by device
++	 * identity alone.  Without this, on a system with several identical
++	 * GPUs an earlier entry would be picked for a later card.
++	 */
++	for (exact = true; ; exact = false) {
++		offset = vfct->VBIOSImageOffset;
+ 
+-		offset += sizeof(VFCT_IMAGE_HEADER);
+-		if (offset > tbl_size) {
+-			dev_info(adev->dev, "ACPI VFCT image header truncated,skipping\n");
+-			goto out;
+-		}
++		while (offset < tbl_size) {
++			GOP_VBIOS_CONTENT *vbios = (GOP_VBIOS_CONTENT *)((char *)hdr + offset);
++			VFCT_IMAGE_HEADER *vhdr = &vbios->VbiosHeader;
+ 
+-		offset += vhdr->ImageLength;
+-		if (offset > tbl_size) {
+-			dev_info(adev->dev, "ACPI VFCT image truncated,skipping\n");
+-			goto out;
+-		}
++			offset += sizeof(VFCT_IMAGE_HEADER);
++			if (offset > tbl_size) {
++				dev_info(adev->dev, "ACPI VFCT image header truncated,skipping\n");
++				goto out;
++			}
+ 
+-		if (vhdr->ImageLength &&
+-		    !amdgpu_acpi_vfct_match(adev, vhdr)) {
+-			adev->bios = kmemdup(&vbios->VbiosContent,
+-					     vhdr->ImageLength,
+-					     GFP_KERNEL);
++			offset += vhdr->ImageLength;
++			if (offset > tbl_size) {
++				dev_info(adev->dev, "ACPI VFCT image truncated,skipping\n");
++				goto out;
++			}
+ 
+-			if (!check_atom_bios(adev, vhdr->ImageLength)) {
+-				amdgpu_bios_release(adev);
++			if (vhdr->ImageLength &&
++			    !amdgpu_acpi_vfct_match(adev, vhdr, exact)) {
++				adev->bios = kmemdup(&vbios->VbiosContent,
++						     vhdr->ImageLength,
++						     GFP_KERNEL);
++
++				if (!check_atom_bios(adev, vhdr->ImageLength)) {
++					amdgpu_bios_release(adev);
++					goto out;
++				}
++				adev->bios_size = vhdr->ImageLength;
++				r = true;
+ 				goto out;
+ 			}
+-			adev->bios_size = vhdr->ImageLength;
+-			r = true;
+-			goto out;
+ 		}
++
++		if (!exact)
++			break;
+ 	}
+ 
+ 	dev_info(adev->dev, "ACPI VFCT table present but broken (too short #2),skipping\n");
+-- 
+2.53.0
+
