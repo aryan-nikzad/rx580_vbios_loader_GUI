@@ -289,9 +289,18 @@ The exact result depends on the GPU, ROM, motherboard firmware, and card state. 
 
 On affected systems, the Linux `amdgpu` driver may incorrectly use the same vBIOS for multiple GPUs (for example, the first card's vBIOS) instead of using the correct per-card vBIOS. The patch in the repository's [`vfct/` directory](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/tree/main/vfct) modifies the kernel/`amdgpu` code path to address this behavior.
 
-The exact underlying cause has not been conclusively identified by the project maintainer. This appears to be a kernel/`amdgpu` VFCT handling issue, not a bug in the RX 580 vBIOS Loader application itself. Applying the patch is an optional workaround for systems that exhibit this mixed-source, multi-GPU problem.
+The patch addresses a specific selection problem in Linux's `amdgpu` VFCT code. VFCT can contain separate vBIOS entries for multiple GPUs, but the original code accepts a matching entry even when its recorded PCI bus number differs from the GPU's current bus number. It then stops at the first match. If several cards share the same vendor/device ID and PCI slot/function values, an earlier card's entry can be selected for a later card—even when a correct entry for that later card exists farther down the table.
 
-**Important:** This is a Linux kernel driver source patch, not a loader setting or an application patch. Review the patch and instructions in [`vfct/`](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/tree/main/vfct), apply it to the relevant kernel source, and rebuild/install the patched kernel as appropriate for your distribution. Keep a working kernel available so you can boot back into it if needed. Do not apply it unless you understand the changes and have confirmed that you are affected by this issue.
+The patch changes the lookup to use **two passes**:
+
+1. Search the entire VFCT table for an entry whose PCI bus, slot, function, vendor ID, and device ID match the current GPU.
+2. Only if no exact bus match exists, retry using the existing device-identity fallback. This preserves support for systems where firmware-recorded and runtime PCI bus numbers differ.
+
+The reported reproduction used two RX 580 / Polaris 10 cards with the same PCI device ID but different board vendors on an ASUS B250 mining motherboard. The VFCT table had entries for bus 1 and bus 12, but the card at bus 12 received the bus 1 vBIOS. Using the wrong board's vBIOS can cause initialization failures, including errors such as `UVD not responding` or a fatal error during GPU initialization.
+
+This is a targeted workaround for that VFCT entry-selection behavior; it is **not proof that every mixed SPI/VFCT problem has the same cause**, and it may not help if your symptoms come from another issue. The patch changes Linux kernel/`amdgpu` code, not the loader application.
+
+**Important:** This is a Linux kernel driver source patch, not a loader setting or an application patch. Review [the patch file](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/blob/main/vfct/0001-drm-amdgpu-prefer-exact-bus-match-when-selecting-VFC.patch), apply it to a compatible kernel source tree, and rebuild/install the patched kernel as appropriate for your distribution. Kernel source versions may differ, so the patch may need adjustment or may not apply cleanly. Keep a known-working kernel available so you can boot back into it if needed. Only apply it if the symptoms and VFCT/PCI layout indicate that this issue may affect your system.
 
 ## Troubleshooting
 
