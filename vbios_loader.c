@@ -718,7 +718,9 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
       TRACE(L"already initialised, skipped (MEMSIZE=%08x MISC9=%08x SCRATCH7=%08x)", mem, m9, s7b);
       if (idx < NRES) { g_st.res[idx] = 4; state_save(); }
       if (bios_pad) FreePool(bios_pad);
-      FreePool(r.rom);
+      /* Keep this ROM alive for deferred VFCT publication.  The caller decides whether
+       * this selected ROM should be exposed to Linux or discarded for this card. */
+      vfct_set(c, r.rom, r.romsz, AMD_VID, r.did);
       return RES_OK;
     }
     lg(L"   GPU requires ASIC_Init%s.\n", force_init ? L" (forced)" : L"");
@@ -1102,8 +1104,12 @@ static void process_card(CARD *c, EFI_HANDLE image, INTN manual)
     c->ms = (UINT32)(atom_now_ms() - t0);
     if (r == RES_OK && g_last_skipped) {                   /* green: the card was already up, nothing was changed */
       c->state = CS_NATIVE; c->vram_mb = g_last_mem; c->rom[0] = 0; set_note(c, L"already initialised - left untouched");
-      if (g_st.working[0]) { StrCpy(c->rom, g_st.working); }                         /* it needed a ROM before: keep publishing it */
-      else { vfct_clear(c); }                                                         /* own working chip: do not hand the OS a foreign ROM */
+      if (was_pin || was_working) {                                                   /* preserve the ROM selected for this card */
+        StrCpy(c->rom, cands[idx].name);
+        if (was_pin) { g_st.pinstrikes = 0; state_save(); }                           /* skipped cards must not consume their pin */
+        lg(L"   [VFCT] already-initialised card %02x:%02x.%x: publishing %s to the OS\\n", c->bus, c->dev, c->fn, cands[idx].name);
+      }
+      else { vfct_clear(c); }                                                         /* do not hand the OS an unselected ROM */
       vfct_publish(); return;
     }
     if (r == RES_OK) {
