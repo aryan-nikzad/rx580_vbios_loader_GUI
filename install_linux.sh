@@ -11,6 +11,8 @@ ESP=${ESP:-/boot/efi}
 DEST="$ESP/EFI/vbios_loader"
 GRUB_HOOK=/etc/grub.d/06_rx580_vbios_loader
 MARKER=RX580_VBIOS_LOADER_MANAGED
+RESET_SERVICE=/etc/systemd/system/rx580-vbios-loader-reset.service
+RESET_MARKER=RX580_VBIOS_LOADER_RESET_MANAGED
 
 [ -f "$HERE/vbios_loader.efi" ] && [ -d "$HERE/vbioses" ] || {
   echo "Build vbios_loader.efi and create vbioses/ containing your ROM dumps first."
@@ -25,6 +27,9 @@ command -v update-grub >/dev/null 2>&1 || {
   exit 1
 }
 command -v blkid >/dev/null 2>&1 || { echo "blkid is required."; exit 1; }
+command -v grub-editenv >/dev/null 2>&1 || { echo "grub-editenv is required."; exit 1; }
+command -v systemctl >/dev/null 2>&1 || { echo "systemctl is required."; exit 1; }
+GRUB_EDITENV=$(command -v grub-editenv)
 
 SRC=$(findmnt -n -o SOURCE --target "$ESP")
 ESP_UUID=$(blkid -s UUID -o value "$SRC")
@@ -35,6 +40,10 @@ ESP_UUID=$(blkid -s UUID -o value "$SRC")
 
 if [ -e "$GRUB_HOOK" ] && ! grep -q "$MARKER" "$GRUB_HOOK"; then
   echo "Refusing to overwrite existing $GRUB_HOOK because it is not marked as managed by this installer."
+  exit 1
+fi
+if [ -e "$RESET_SERVICE" ] && ! grep -q "$RESET_MARKER" "$RESET_SERVICE"; then
+  echo "Refusing to overwrite existing $RESET_SERVICE because it is not marked as managed by this installer."
   exit 1
 fi
 
@@ -53,9 +62,9 @@ elif [ -f "$HERE/vbios_loader.cfg.example" ]; then
   echo "Created $DEST/vbios_loader.cfg from the example"
 fi
 
-# The GRUB entry runs the EFI app first. If the app returns to GRUB, a
-# runtime-only flag prevents the entry from being offered again in the
-# reloaded menu; GRUB then continues to the normal default OS entry.
+# The flag must be saved before reloading GRUB, because configfile reloads
+# grubenv. A systemd service clears it after Ubuntu starts so it runs again
+# on the next reboot.
 TMP_HOOK=$(mktemp)
 cat > "$TMP_HOOK" <<EOF
 #!/bin/sh
@@ -75,6 +84,7 @@ menuentry 'RX580 vBIOS Loader (run before Linux)' --id rx580-vbios-loader {
     chainloader (\$esp)/EFI/vbios_loader/vbios_loader.efi
     boot
     set rx580_loader_ran=1
+    save_env rx580_loader_ran
     configfile \$prefix/grub.cfg
 }
 fi
@@ -82,6 +92,27 @@ RX580_GRUB_EOF
 EOF
 chmod 755 "$TMP_HOOK"
 mv "$TMP_HOOK" "$GRUB_HOOK"
+
+# Reset the one-shot GRUB flag only after Linux has booted. This preserves
+# the flag during GRUB config reload, but allows the loader on the next boot.
+TMP_SERVICE=$(mktemp)
+cat > "$TMP_SERVICE" <<EOF
+# $RESET_MARKER
+[Unit]
+Description=Reset RX580 vBIOS loader one-shot GRUB flag
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=$GRUB_EDITENV /boot/grub/grubenv unset rx580_loader_ran
+
+[Install]
+WantedBy=multi-user.target
+EOF
+install -m 644 "$TMP_SERVICE" "$RESET_SERVICE"
+rm -f "$TMP_SERVICE"
+systemctl daemon-reload
+systemctl enable rx580-vbios-loader-reset.service
 
 if ! update-grub; then
   echo "ERROR: update-grub failed. The GRUB hook remains at $GRUB_HOOK; remove it and run update-grub to roll back."
@@ -101,8 +132,7 @@ sync
 echo
 echo "Installed RX580 loader files at $DEST"
 echo "Added the RX580 loader as the first GRUB menu entry."
-echo "With GRUB_DEFAULT=0, it runs automatically; after it exits, GRUB reloads"
-echo "the menu without repeating the loader and continues to the normal default OS."
-echo "If GRUB_DEFAULT=saved, select the RX580 entry manually unless your saved"
-echo "default is configured to use it."
-echo "To undo the GRUB integration: sudo rm -f $GRUB_HOOK && sudo update-grub"
+echo "With GRUB_DEFAULT=0, it runs automatically. If it returns, GRUB saves a one-shot"
+echo "flag, reloads the menu without repeating the loader, and continues to Ubuntu."
+echo "A systemd service clears the flag after Ubuntu starts, enabling the loader next boot."
+echo "To undo: sudo systemctl disable --now rx580-vbios-loader-reset.service; sudo rm -f $RESET_SERVICE $GRUB_HOOK; sudo systemctl daemon-reload; sudo update-grub"
