@@ -285,16 +285,21 @@ The exact result depends on the GPU, ROM, motherboard firmware, and card state. 
 
 ### Mixed vBIOS sources: optional amdgpu/VFCT patch
 
-**This patch is not part of the loader and is not required for every system.** It may be needed on affected multi-GPU systems where some GPUs provide their vBIOS through their physical SPI flash and other GPUs get their vBIOS from this loader through ACPI/VFCT.
+**Important context: VFCT is already a fallback BIOS source in the Linux driver.** The driver normally tries its usual vBIOS acquisition paths first, which can include reading the card's physical SPI flash. VFCT is used when the normal path does not provide a usable BIOS. This patch does not change that source-selection order; it changes how the driver chooses an entry *inside VFCT* once it needs that fallback source.
 
-On affected systems, the Linux `amdgpu` driver may incorrectly use the same vBIOS for multiple GPUs (for example, the first card's vBIOS) instead of using the correct per-card vBIOS. The patch in the repository's [`vfct/` directory](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/tree/main/vfct) modifies the kernel/`amdgpu` code path to address this behavior.
+The overall order is:
 
-The patch addresses a specific selection problem in Linux's `amdgpu` VFCT code. VFCT can contain separate vBIOS entries for multiple GPUs, but the original code accepts a matching entry even when its recorded PCI bus number differs from the GPU's current bus number. It then stops at the first match. If several cards share the same vendor/device ID and PCI slot/function values, an earlier card's entry can be selected for a later card—even when a correct entry for that later card exists farther down the table.
+1. **Normal BIOS acquisition:** Use a BIOS obtained through the driver's normal path, such as the card's physical SPI flash, when available.
+2. **VFCT fallback — exact match first (added by this patch):** If the driver needs a BIOS from VFCT, scan the whole table for an entry matching the current GPU's PCI bus number as well as its vendor, device, slot, and function.
+3. **VFCT fallback — original fallback retained:** If no exact-bus entry exists, use the kernel's existing behavior of accepting an entry based on device identity even when the recorded PCI bus number differs. This supports systems where firmware-recorded and runtime PCI bus numbers differ.
 
-The patch changes the lookup to use **two passes**:
+In short, **the patch adds an exact-bus-first pass inside the existing VFCT fallback**. It does not remove or replace the kernel's original bus-number-mismatch fallback; it delays that fallback until the driver has checked whether a correct exact-bus entry exists.
 
-1. Search the entire VFCT table for an entry whose PCI bus, slot, function, vendor ID, and device ID match the current GPU.
-2. Only if no exact bus match exists, retry using the existing device-identity fallback. This preserves support for systems where firmware-recorded and runtime PCI bus numbers differ.
+**This patch is not part of the loader and is not required for every system.** It may be useful on affected multi-GPU systems where some cards use their physical SPI vBIOS and others receive their vBIOS from the loader through ACPI/VFCT.
+
+The problem addressed is that the original `amdgpu` VFCT code can accept an entry whose bus number differs from the current GPU's bus number and stop at that first match. If multiple GPUs share the same vendor/device ID and PCI slot/function values, an earlier card's entry can be selected for a later card—even when the VFCT table contains a correct entry for the later card.
+
+The patch changes the VFCT lookup to use two passes: first search for an exact bus-and-device match; only if none exists, retry with the kernel's original device-identity fallback.
 
 The reported reproduction used two RX 580 / Polaris 10 cards with the same PCI device ID but different board vendors on an ASUS B250 mining motherboard. The VFCT table had entries for bus 1 and bus 12, but the card at bus 12 received the bus 1 vBIOS. Using the wrong board's vBIOS can cause initialization failures, including errors such as `UVD not responding` or a fatal error during GPU initialization.
 
