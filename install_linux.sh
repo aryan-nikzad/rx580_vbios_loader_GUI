@@ -61,12 +61,12 @@ cat > "$TMP_HOOK" <<EOF
 #!/bin/sh
 # $MARKER
 cat <<'RX580_GRUB_EOF'
-if [ "${rx580_loader_ran}" = "1" ]; then
+if [ "\${rx580_loader_ran}" = "1" ]; then
     set timeout=3
     set timeout_style=menu
 fi
 
-if [ "${rx580_loader_ran}" != "1" ]; then
+if [ "\${rx580_loader_ran}" != "1" ]; then
 menuentry 'RX580 vBIOS Loader (run before Linux)' --id rx580-vbios-loader {
     insmod part_gpt
     insmod fat
