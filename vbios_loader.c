@@ -896,6 +896,22 @@ static void trace_write(const CHAR16 *msg)
  * ===================================================================================================== */
 #include <stdarg.h>
 
+/* Write every lg() message to the same flushed trace file, preserving each line.
+ * Long messages are split into chunks so trace_write() cannot silently truncate them. */
+static void trace_log_message(const CHAR16 *msg)
+{
+  const CHAR16 *p = msg;
+  while (*p) {
+    CHAR16 line[190];
+    UINTN n = 0;
+    while (*p && *p != L'\\r' && *p != L'\\n' && n < 189) line[n++] = *p++;
+    line[n] = 0;
+    trace_write(line);
+    if (*p == L'\\r') p++;
+    if (*p == L'\\n') p++;
+  }
+}
+
 /* ---------- log ring buffer (+ console in text mode) ---------- */
 CHAR16 g_log[LOG_LINES][LOG_W]; UINTN g_nlog; CHAR16 g_activity[120]; BOOLEAN g_ui_gui;
 static UINTN g_logcol;
@@ -903,6 +919,7 @@ void lg(const CHAR16 *fmt, ...)
 {
   CHAR16 b[420]; va_list a;
   va_start(a, fmt); VSPrint(b, sizeof b, fmt, a); va_end(a);
+  trace_log_message(b);
   if (!g_ui_gui) Print(L"%s", b);
   for (CHAR16 *p = b; *p; p++) {
     if (*p == L'\r') continue;
