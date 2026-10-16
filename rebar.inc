@@ -74,6 +74,53 @@ static void rebar_probe(CARD *c, const CHAR16 *tag, BOOLEAN save)
   FreePool(buf);
 }
 
+/* Read the GPU's config-space mirror through BAR5. Unlike EFI_PCI_IO, this path
+ * can expose the extended-capability bytes on boards where direct config reads
+ * stop at 0xFF. This is diagnostic only: reporting a capability is not the same
+ * as creating one, and these reads do not change BAR allocation. Call only while
+ * g_mmio still refers to this card (inside run_cand, after ASIC_Init). */
+static void rebar_mirror_report(CARD *c, const CHAR16 *tag)
+{
+  if (!c || c->demo || !c->mmio || !g_mmio) return;
+  UINT32 *buf = AllocatePool(4096);
+  if (!buf) return;
+
+  for (UINTN i = 0; i < 1024; i++) buf[i] = c_rr(NULL, 0x1000 + (UINT32)i);
+  lg(L"  [MIR %s] %02x:%02x.%x BAR5 mirror PCIe extended capabilities:",
+     tag, (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
+
+  BOOLEAN have_rebar = FALSE;
+  UINTN off = 0x100;
+  for (UINTN guard = 0; guard < 64 && off >= 0x100 && off <= 0xFFC; guard++) {
+    UINT32 h = buf[off / 4];
+    if (h == 0 || h == 0xFFFFFFFFu) break;
+    UINT32 id = h & 0xFFFFu;
+    UINTN next = (h >> 20) & 0xFFCu;
+    lg(L" %03x:%04x", (UINT32)off, id);
+    if (id == 0x0015 && off + 12 <= 0x1000) {
+      have_rebar = TRUE;
+      UINT32 cap = buf[(off + 4) / 4];
+      UINT32 ctl = buf[(off + 8) / 4];
+      lg(L"[ReBAR cap=%08x ctrl=%08x mask=%05x BAR=%u size=%u]",
+         cap, ctl, (cap >> 4) & 0xFFFFFu, ctl & 7u, (ctl >> 8) & 0x3Fu);
+    }
+    if (!next || next == off) break;
+    off = next;
+  }
+  lg(L" => ReBAR %s (mirror only; no capability or BAR was changed)\n",
+     have_rebar ? L"PRESENT" : L"ABSENT");
+  TRACE(L"MIR %s %02x:%02x.%x rebar=%d", tag, (UINT32)c->bus,
+        (UINT32)c->dev, (UINT32)c->fn, (int)have_rebar);
+
+  if (CFG(S_TRACE)) {
+    CHAR16 name[64];
+    SPrint(name, sizeof name, L"mir_cfg_%02x%02x%x_%s.bin",
+           (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, tag);
+    rb_save(name, buf, 4096);
+  }
+  FreePool(buf);
+}
+
 /* ---------- patch file ---------- */
 static BOOLEAN rb_hex(const CHAR8 *s, UINTN n, UINT32 *o)
 {
@@ -98,6 +145,7 @@ static BOOLEAN rb_bdf(const CHAR8 *s, UINTN n, UINT32 *b, UINT32 *d, UINT32 *f)
 static void rebar_patch_apply(CARD *c)
 {
   if (!c || !c->pio || !g_mmio) return;
+  rebar_mirror_report(c, L"post-init-before-patch");
   EFI_FILE_HANDLE root = g_vol_root ? g_vol_root : g_root, f;
   if (!root) return;
   CHAR16 *path = own_path(L"rebar_patch.txt");
