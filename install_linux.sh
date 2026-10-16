@@ -49,6 +49,15 @@ cp "$HERE/vbios_loader.efi" "$DEST/"
 rm -rf "$DEST/vbioses"
 cp -r "$HERE/vbioses" "$DEST/vbioses"
 
+# Optional, user-authored experimental MMIO/indirect/PCI-config writes.
+# If no source file is supplied, preserve any existing EFI-side patch.
+if [ -f "$HERE/rebar_patch.txt" ]; then
+  cp "$HERE/rebar_patch.txt" "$DEST/rebar_patch.txt"
+  echo "Installed experimental register patch at $DEST/rebar_patch.txt"
+else
+  echo "No local rebar_patch.txt; leaving any existing EFI-side patch unchanged."
+fi
+
 if [ -f "$DEST/vbios_loader.cfg" ]; then
   echo "Keeping your existing $DEST/vbios_loader.cfg"
 elif [ -f "$HERE/vbios_loader.cfg" ]; then
