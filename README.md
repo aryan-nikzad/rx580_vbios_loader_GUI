@@ -176,7 +176,7 @@ Make sure the system was booted in UEFI mode and that the EFI System Partition i
 
 The loader can apply user-authored register operations from `rebar_patch.txt` after a candidate ROM successfully completes `ASIC_Init`. The parser supports read-modify-write entries for BAR5 MMIO registers, indirect registers, and PCI configuration dwords. The installer now copies a project-root `rebar_patch.txt` to `EFI/vbios_loader/rebar_patch.txt` when that file exists. If it does not exist in the project folder, the installer leaves any already-installed EFI-side patch unchanged.
 
-To prepare a file, copy `rebar_patch.txt.example` to `rebar_patch.txt` and edit it only with register offsets and values you have independently verified for this exact GPU. The example contains comments only and performs no writes by itself. Use the PCI BDF printed by the loader; entries for another BDF are skipped.
+To prepare a file, copy `rebar_patch.txt.example` to `rebar_patch.txt` and edit it only with register offsets and values you have independently verified for this exact GPU. The example contains comments only and performs no writes by itself. The active root-level `rebar_patch.txt` is ignored by Git in this branch so hardware-specific write payloads are not accidentally committed. Use the PCI BDF printed by the loader; entries for another BDF are skipped.
 
 Supported line formats (all numeric values are hexadecimal; `MASK` is optional and defaults to `FFFFFFFF`):
 
