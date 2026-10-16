@@ -15,6 +15,7 @@
 
 static void trace_write(const CHAR16 *msg);
 static void post_code(UINT8 v);
+static void rebar_patch_apply(CARD *c);
 #define TRACE(...) do { CHAR16 _tb[160]; SPrint(_tb, sizeof _tb, __VA_ARGS__); trace_write(_tb); } while (0)
 
 #define AMD_VID       0x1002
@@ -768,6 +769,7 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
        * once, after run_all() has finished. */
       post_code(0x45);
       lg(L"   [A8.3] preparing GPU for OS handoff...\n"); post_code(0xAD);
+      rebar_patch_apply(c);
       prepare_for_os(&card);
       post_code(0x46);
       lg(L"   [A8.4] card initialization complete; returning to multi-card loop.\n"); post_code(0xAE);
@@ -852,6 +854,8 @@ static EFI_STATUS dump_to(const CHAR16 *name, BOOLEAN progress)
   return EFI_SUCCESS;
 }
 
+#include "rebar.inc"
+
 static void dump_registers(CARD *c)
 {
   if (!c->mmio) { lg(L"  Card has no usable BAR5.\n"); return; }
@@ -861,6 +865,7 @@ static void dump_registers(CARD *c)
   lg(L"\n  Dumping GPU registers of %02x:%02x.%x to %s (state: MEMSIZE=%08x).\n"
      L"  Written chunk by chunk, so a freeze keeps what was read. If the PC freezes, note the last number.\n", c->bus, c->dev, c->fn, name, memsz);
   EFI_STATUS s = dump_to(name, !g_ui_gui);
+  { CHAR16 tg[16]; SPrint(tg, sizeof tg, L"dump"); rebar_probe(c, tg, TRUE); }
   lg(L"\n  Saved %s : %r  (copy it off the EFI partition)\n", name, s);
 }
 
@@ -1339,6 +1344,7 @@ static void run_all(EFI_HANDLE image, BOOLEAN only_failed)
     ui_progress();
   }
   publish_os_roms();
+  for (UINTN i = 0; i < g_ncards; i++) rebar_probe(&g_cards[i], L"post", CFG(S_TRACE));
   lg(L"[MULTI] all cards processed.\n");
   g_activity[0] = 0;
 }
@@ -1426,6 +1432,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
   scan_folder(); scan_meta(); TRACE(L"%d ROM file(s) found", ncand); post_code(0x03);
   ui_init(); TRACE(L"ui ready (%s)", g_ui_gui ? L"gui" : L"text"); post_code(0x04);
   detect_cards(); TRACE(L"%d card(s) detected", g_ncards); post_code(0x05);
+  for (UINTN i = 0; i < g_ncards; i++) rebar_probe(&g_cards[i], L"pre", CFG(S_TRACE));
   lg(L"RX 580 vBIOS loader %s: %d card(s), %d ROM file(s) in %s, config %s\n", LOADER_VERSION, g_ncards, ncand, g_romdir ? g_romdir : L"(none)", g_cfg_file_found ? g_cfg_path : L"(none, built-in defaults)");
 
   if (!g_ncards || !ncand) {
