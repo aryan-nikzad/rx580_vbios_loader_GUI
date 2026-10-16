@@ -152,11 +152,11 @@ static void rebar_patch_apply(CARD *c)
   EFI_STATUS s = FW(root->Open, root, &f, path, EFI_FILE_MODE_READ, 0);
   FreePool(path);
   if (EFI_ERROR(s)) {
-    lg(L"   [PATCH] rebar_patch.txt not found; no register writes applied.\\n");
+    lg(L"   [PATCH] rebar_patch.txt not found; no register writes applied.\n");
     TRACE(L"PATCH file-missing");
     return;
   }
-  lg(L"   [PATCH] rebar_patch.txt opened; applying entries matching %02x:%02x.%x.\\n",
+  lg(L"   [PATCH] rebar_patch.txt opened; applying entries matching %02x:%02x.%x.\n",
      (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
   EFI_FILE_INFO *fi = LibFileInfo(f); UINTN sz = fi ? (UINTN)fi->FileSize : 0; if (fi) FreePool(fi);
   if (!sz || sz > 32768) { FW(f->Close, f); return; }
