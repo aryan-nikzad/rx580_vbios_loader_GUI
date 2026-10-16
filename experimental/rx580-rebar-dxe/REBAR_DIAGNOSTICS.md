@@ -19,7 +19,7 @@ It is diagnostic only. It does not manufacture a PCIe capability, request a larg
 4. Boot with one affected card and collect the same two files after the loader has initialized it.
 5. Compare the same offsets in the two mirror dumps. Keep each file labelled with the physical card and PCI BDF.
 
-Do not add guessed register writes to `rebar_patch.txt` yet. The proposed writes to registers `0xFC3`, `0x1559`, and `0x15FC` are a hypothesis, not verified strap controls. Writing them without proving their meaning could destabilize the GPU or hang the machine.
+The loader's `rebar_patch.txt` parser can perform real MMIO, indirect-register, and PCI-config read-modify-write operations. The separate `experiment/rebar-patch-register-writes` branch makes the installer copy a user-supplied project-root patch file to the EFI partition and logs when the file is missing or opened. It deliberately adds no active register values. Do not use guessed offsets or values: their meaning must be independently verified for this exact board, since unsupported writes can destabilize the GPU or hang the machine.
 
 ## Important architectural limitation
 
