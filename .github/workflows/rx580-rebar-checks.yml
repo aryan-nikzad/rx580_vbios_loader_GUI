@@ -52,6 +52,7 @@ jobs:
           set -euxo pipefail
           cd edk2
           export PACKAGES_PATH="$GITHUB_WORKSPACE/edk2:$GITHUB_WORKSPACE"
+          export PYTHON_COMMAND=python3
           source edksetup.sh
           build -p "$GITHUB_WORKSPACE/experimental/rx580-rebar-dxe/early/Rx580ReBarEarly.dsc" -a X64 -t GCC5 -b DEBUG
 
