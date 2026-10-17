@@ -16,7 +16,9 @@ cd "$EDK2_ROOT"
 export PACKAGES_PATH="$EDK2_ROOT:$REPO_ROOT${PACKAGES_PATH:+:$PACKAGES_PATH}"
 export WORKSPACE="$EDK2_ROOT"
 export PYTHON_COMMAND=python3
+set +u
 . ./edksetup.sh
+set -u
 build -p "$REPO_ROOT/experimental/rx580-rebar-dxe/early/Rx580ReBarEarly.dsc" -a X64 -t "$TOOLCHAIN" -b "$TARGET"
 
 echo
