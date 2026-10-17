@@ -1,0 +1,12 @@
+# FAKE ReBAR (minimal). Writes the healthy card's Resizable BAR capability into the GPU's config-space mirror
+# on the two dead cards. Volatile: a reboot undoes it. If '[MIR after]' still says ABSENT, the mirror is read-only.
+# --- minimal: ReBAR only, chain 0x100 -> 0x200 -> 0x270
+0d:00.0 mmio 0x1040 0x2001000b
+0d:00.0 mmio 0x1080 0x27010015
+0d:00.0 mmio 0x1081 0x0003f000
+0d:00.0 mmio 0x1082 0x00000820
+# --- minimal: ReBAR only, chain 0x100 -> 0x200 -> 0x270
+0e:00.0 mmio 0x1040 0x2001000b
+0e:00.0 mmio 0x1080 0x27010015
+0e:00.0 mmio 0x1081 0x0003f000
+0e:00.0 mmio 0x1082 0x00000820

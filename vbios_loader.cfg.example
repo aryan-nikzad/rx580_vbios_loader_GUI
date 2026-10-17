@@ -50,7 +50,7 @@ engine=atom
 loop_ms=300
 gop_timeout=12
 vfct_only=0
-post_dump=0
+post_dump=1
 trace=1
 
 # how the ROMs are handed to Linux (ACPI VFCT table, one image per loaded card, built once after the last card):
