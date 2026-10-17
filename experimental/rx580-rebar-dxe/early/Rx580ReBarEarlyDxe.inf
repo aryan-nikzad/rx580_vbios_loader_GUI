@@ -1,0 +1,29 @@
+[Defines]
+  INF_VERSION                    = 1.25
+  BASE_NAME                      = Rx580ReBarEarlyDxe
+  FILE_GUID                      = 5d4c6f81-70c0-49a6-962b-440e58119271
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = Rx580ReBarEarlyDxeEntryPoint
+
+[Sources]
+  Rx580ReBarEarlyDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  BaseLib
+  PrintLib
+
+[Protocols]
+  gEfiPciRootBridgeIoProtocolGuid ## CONSUMES
+  gEfiPciHostBridgeResourceAllocationProtocolGuid ## CONSUMES
+
+[Depex]
+  gEfiPciRootBridgeIoProtocolGuid
+  gEfiPciHostBridgeResourceAllocationProtocolGuid
