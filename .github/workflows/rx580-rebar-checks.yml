@@ -96,6 +96,27 @@ jobs:
           path: artifacts/Rx580ReBarForce8GiB.ffs
           if-no-files-found: error
 
+      - name: Assemble loader-first test bundle
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BUNDLE="$GITHUB_WORKSPACE/rx580-rebar-loader-first-test-files"
+          mkdir -p "$BUNDLE/tools" "$BUNDLE/docs"
+          cp "$GITHUB_WORKSPACE/vbios_loader.efi" "$BUNDLE/"
+          cp "$GITHUB_WORKSPACE/vbios_loader.cfg.example" "$BUNDLE/"
+          cp "$GITHUB_WORKSPACE/artifacts/Rx580ReBarForce8GiB.ffs" "$BUNDLE/"
+          cp "$GITHUB_WORKSPACE/tools/read_rebar_efi_log.py" "$BUNDLE/tools/"
+          cp "$GITHUB_WORKSPACE/tools/compare_rebar.py" "$BUNDLE/tools/"
+          cp "$GITHUB_WORKSPACE/experimental/rx580-rebar-dxe/REBAR_DIAGNOSTICS.md" "$BUNDLE/docs/"
+          cp "$GITHUB_WORKSPACE/experimental/rx580-rebar-dxe/early/README.md" "$BUNDLE/docs/"
+
+      - name: Upload loader-first test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: rx580-rebar-loader-first-test-files
+          path: rx580-rebar-loader-first-test-files/
+          if-no-files-found: error
+
       - name: Syntax-check diagnostic tools
         run: python3 -m py_compile tools/compare_rebar.py tools/read_rebar_efi_log.py
 
