@@ -30,9 +30,17 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential uuid-dev nasm acpica-tools python3-venv
 
-      - name: Build EDK2 BaseTools
-        working-directory: edk2
-        run: make -C BaseTools
+      - name: Install EDK2 Python requirements and build BaseTools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd edk2
+          python3 -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r pip-requirements.txt
+          make -C BaseTools
+          echo "$GITHUB_WORKSPACE/edk2/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Build DXE module
         shell: bash
