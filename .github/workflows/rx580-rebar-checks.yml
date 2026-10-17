@@ -24,7 +24,7 @@ jobs:
         with:
           repository: tianocore/edk2
           ref: edk2-stable202502
-          submodules: recursive
+          submodules: false
           path: edk2
 
       - name: Install build dependencies
