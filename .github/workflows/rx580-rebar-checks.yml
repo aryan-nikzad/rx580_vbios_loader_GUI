@@ -73,12 +73,15 @@ jobs:
           source edksetup.sh
           set -u
           DXE="$(find Build/Rx580ReBarEarly -type f -name Rx580ReBarEarlyDxe.efi -print -quit)"
+          DEPEX="$(find Build/Rx580ReBarEarly -type f -name Rx580ReBarEarlyDxe.depex -print -quit)"
           test -n "$DXE"
+          test -n "$DEPEX"
           BUILD_DIR="$(dirname "$DXE")"
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          GenSec -o "$BUILD_DIR/Rx580ReBarEarlyDxe.depex.sec" "$DEPEX" -S EFI_SECTION_DXE_DEPEX
           GenSec -o "$BUILD_DIR/Rx580ReBarEarlyDxe.pe32.sec" "$DXE" -S EFI_SECTION_PE32
-          GenSec -o "$BUILD_DIR/Rx580ReBarEarlyDxe.name.sec" -S EFI_SECTION_USER_INTERFACE -n "RX580 ReBAR Early DXE"
-          GenFfs -g 5d4c6f81-70c0-49a6-962b-440e58119271 -o "$GITHUB_WORKSPACE/artifacts/Rx580ReBarForce8GiB.ffs" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.pe32.sec" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.name.sec" -t EFI_FV_FILETYPE_DRIVER --checksum
+          GenSec -o "$BUILD_DIR/Rx580ReBarEarlyDxe.name.sec" -S EFI_SECTION_USER_INTERFACE -n "RX580 ReBAR FORCE 8 GiB"
+          GenFfs -g 5d4c6f81-70c0-49a6-962b-440e58119271 -o "$GITHUB_WORKSPACE/artifacts/Rx580ReBarForce8GiB.ffs" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.depex.sec" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.pe32.sec" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.name.sec" -t EFI_FV_FILETYPE_DRIVER --checksum
 
       - name: Upload DXE FFS artifact
         uses: actions/upload-artifact@v4
