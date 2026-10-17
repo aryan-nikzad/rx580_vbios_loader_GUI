@@ -1,0 +1,6 @@
+# TEST 1 - experiment, dead card 0d:00.0 ONLY. Three registers that differ between healthy and dead cards by the SAME single bit
+# (bit 26) and contain the device id 67df. Hypothesis: a PCIe strap gate for the extended capabilities / ReBAR.
+# Read-only effect is nothing; writes are volatile (a reboot undoes everything).
+0d:00.0 mmio 0xfc3  0x04000000 0x04000000
+0d:00.0 mmio 0x1559 0x04000000 0x04000000
+0d:00.0 mmio 0x15fc 0x04000000 0x04000000

@@ -172,6 +172,24 @@ Prefer the card's own complete SPI dump. If testing another ROM, verify:
 
 Make sure the system was booted in UEFI mode and that the EFI System Partition is mounted. The default path is `/boot/efi`; for another mount point, set `ESP` when running the installer.
 
+## Experimental register patch file
+
+The loader can apply user-authored register operations from `rebar_patch.txt` after a candidate ROM successfully completes `ASIC_Init`. The parser supports read-modify-write entries for BAR5 MMIO registers, indirect registers, and PCI configuration dwords. The installer now copies a project-root `rebar_patch.txt` to `EFI/vbios_loader/rebar_patch.txt` when that file exists. If it does not exist in the project folder, the installer leaves any already-installed EFI-side patch unchanged.
+
+To prepare a file, copy `rebar_patch.txt.example` to `rebar_patch.txt` and edit it only with register offsets and values you have independently verified for this exact GPU. The example contains comments only and performs no writes by itself. The active root-level `rebar_patch.txt` is ignored by Git in this branch so hardware-specific write payloads are not accidentally committed. Use the PCI BDF printed by the loader; entries for another BDF are skipped.
+
+Supported line formats (all numeric values are hexadecimal; `MASK` is optional and defaults to `FFFFFFFF`):
+
+```text
+BB:DD.F  mmio  REG                 VALUE [MASK]
+BB:DD.F  ind   INDEX DATA ADDR     VALUE [MASK]
+BB:DD.F  cfg   CONFIG_OFFSET       VALUE [MASK]
+```
+
+The MMIO address is a dword register index, the indirect form selects an address through an index register, and `cfg` uses a PCI configuration-space dword offset. Operations are read-modify-write, with the mask selecting which bits are replaced. Check the loader log for `[PATCH]` lines to confirm whether the file opened and which operations were applied.
+
+**Hardware warning:** this executes real register writes and can hang or destabilize the GPU. Keep a known-good boot path and use only documented values. It is not a ReBAR fix by itself: these writes run after `ASIC_Init` and after motherboard PCI resource enumeration, so they cannot retroactively create a missing PCIe ReBAR capability or reallocate an 8 GiB BAR. This branch adds patch-file delivery and visibility; it does not add a guessed register payload.
+
 ## Installed files
 
 The installer places files under `EFI/vbios_loader/` on the EFI System Partition:

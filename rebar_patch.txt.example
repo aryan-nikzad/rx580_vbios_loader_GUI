@@ -1,0 +1,29 @@
+# Experimental register patch template for RX580 vBIOS Loader.
+#
+# This file is comments-only by design; it performs NO writes.
+# To opt in, copy this file to "rebar_patch.txt", replace the placeholders
+# with independently verified values for your exact GPU, then run the
+# installer so it copies rebar_patch.txt beside vbios_loader.efi.
+#
+# Syntax (all numbers are hexadecimal; "0x" is optional):
+#   BB:DD.F  mmio  REG             VALUE [MASK]
+#   BB:DD.F  ind   INDEX DATA ADDR VALUE [MASK]
+#   BB:DD.F  cfg   CONFIG_OFFSET   VALUE [MASK]
+#
+# Examples below are syntax placeholders only and intentionally invalid:
+#   BB:DD.F mmio REG VALUE MASK
+#   BB:DD.F ind INDEX DATA ADDR VALUE MASK
+#   BB:DD.F cfg CONFIG_OFFSET VALUE MASK
+#
+# Each line targets one exact PCI bus:device.function shown by the loader.
+# REG / INDEX / DATA are dword MMIO-register indices. ADDR is the indirect
+# address selected through INDEX. CONFIG_OFFSET is a PCI config-space dword
+# offset from 0x000 through 0xFFC.
+#
+# MASK defaults to FFFFFFFF when omitted. Writes are read-modify-write:
+#   new = (old & ~MASK) | (VALUE & MASK)
+#
+# CAUTION: active entries perform real hardware writes after ASIC_Init. Bad
+# offsets or values can freeze or destabilize the GPU. Keep a known-good boot
+# path and do not use guessed register values. This does not itself enable
+# ReBAR or change BAR allocation performed earlier by motherboard firmware.

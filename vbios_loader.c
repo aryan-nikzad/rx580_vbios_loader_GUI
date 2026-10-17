@@ -141,12 +141,41 @@ static UINTN search_tree(EFI_FILE_HANDLE root, CHAR16 *path, UINTN depth)
   return found;
 }
 
-static EFI_LOADED_IMAGE *g_li;
+static EFI_LOADED_IMAGE *g_li; static BOOLEAN g_vol_found_by_scan;
 static void init_volume(EFI_HANDLE image)             /* find the volume + directory the .efi was started from */
 {
   g_owndir = L""; g_vol_root = NULL;
   if (EFI_ERROR(FW(BS->HandleProtocol, image, &gEfiLoadedImageProtocolGuid, (VOID **)&g_li))) g_li = NULL;
   if (g_li) { g_vol_root = LibOpenRoot(g_li->DeviceHandle); if (g_vol_root) g_owndir = own_dir(g_li); }
+  if (!g_vol_root) {   /* LoadedImage/DeviceHandle path failed (GRUB chainload): find the volume that holds \\EFI\\vbios_loader\\vbios_loader.efi */
+    EFI_HANDLE *hv = NULL; UINTN nh = 0;
+    if (!EFI_ERROR(FW(BS->LocateHandleBuffer, ByProtocol, &gSfs, NULL, &nh, &hv)) && hv) {
+      for (UINTN i = 0; i < nh && !g_vol_root; i++) {
+        EFI_FILE_HANDLE r = LibOpenRoot(hv[i]), t;
+        if (!r) continue;
+        CHAR16 *b = PoolPrint(L"\\EFI\\%s\\vbios_loader.efi", LOADER_DIRNAME);
+        if (!EFI_ERROR(FW(r->Open, r, &t, b, EFI_FILE_MODE_READ, 0))) { FW(t->Close, t); g_vol_root = r; g_owndir = PoolPrint(L"\\EFI\\%s", LOADER_DIRNAME); g_vol_found_by_scan = TRUE; }
+        else FW(r->Close, r);
+        FreePool(b);
+      }
+      FreePool(hv);
+    }
+  }
+  /* GRUB chainloading can leave FilePath empty/odd -> own_dir() == "" and every own_path() file (rebar_patch.txt,
+   * loader_trace.txt, dumps) went to / instead of \EFI\vbios_loader. If the .efi is not where own_dir says but
+   * is in \EFI\vbios_loader, use that directory. */
+  if (g_vol_root) {
+    EFI_FILE_HANDLE t;
+    CHAR16 *a = PoolPrint(L"%s\\vbios_loader.efi", g_owndir ? g_owndir : L"");
+    BOOLEAN here = !EFI_ERROR(FW(g_vol_root->Open, g_vol_root, &t, a, EFI_FILE_MODE_READ, 0));
+    if (here) FW(t->Close, t);
+    FreePool(a);
+    if (!here) {
+      CHAR16 *b = PoolPrint(L"\\EFI\\%s\\vbios_loader.efi", LOADER_DIRNAME);
+      if (!EFI_ERROR(FW(g_vol_root->Open, g_vol_root, &t, b, EFI_FILE_MODE_READ, 0))) { FW(t->Close, t); g_owndir = PoolPrint(L"\\EFI\\%s", LOADER_DIRNAME); }
+      FreePool(b);
+    }
+  }
 }
 
 static void scan_folder(void)
@@ -752,7 +781,8 @@ static UINTN run_cand(CARD *c, UINTN idx, BOOLEAN vfct_only, EFI_HANDLE image)
     amdgpu_atom_destroy(actx);
     post_code(0x43);
     if (bios_pad) { FreePool(bios_pad); bios_pad = NULL; }
-    if (g_postdump) { post_code(0x50); TRACE(L"post-init dump start"); EFI_STATUS ds = dump_to(L"regdump_postinit.bin", FALSE); TRACE(L"post-init dump done"); lg(L"   register snapshot after init -> regdump_postinit.bin: %r\n", ds); }
+    if (g_postdump) { post_code(0x50); TRACE(L"post-init dump start"); CHAR16 dn[48]; SPrint(dn, sizeof dn, L"regdump_postinit_%02x%02x%x.bin", (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn); EFI_STATUS ds = dump_to(dn, FALSE); TRACE(L"post-init dump done"); lg(L"   register snapshot after init -> %s: %r\n"
+                                   L"   (layout: 0x40000 bytes MMIO, 0x1000 MC_IO_DEBUG, 0x1000 PCIE indirect)\n", dn, ds); }
     BOOLEAN good = (rc == 0) && s7_ok;
     if (idx < NRES) { g_st.res[idx] = good ? (atom_loops_broken ? 6 : 4) : 3; g_st.loops[idx] = (UINT8)(atom_loops_broken > 255 ? 255 : atom_loops_broken); state_save(); }
     if (good) {
@@ -849,6 +879,13 @@ static EFI_STATUS dump_to(const CHAR16 *name, BOOLEAN progress)
   for (UINTN i = 0; i < 0x400; i++) { mmio_w(0xA91, (UINT32)i); buf[i & 0xFFF] = c_rr(NULL, 0xA92); }
   mmio_w(0xA91, saved_idx);
   { UINTN sz = 0x1000; FW(f->Write, f, &sz, buf); FW(f->Flush, f); }
+  /* PCIe indirect port registers (PCIE_INDEX=0x38 / PCIE_DATA=0x39, same access amdgpu uses): 0x400 dwords appended after the MC block.
+   * The PCIe straps (capability chain / ReBAR / subsystem id) live around here; diff healthy vs dead card. */
+  post_code(0xE1); TRACE(L"dump: PCIE indirect space");
+  { UINT32 sidx = c_rr(NULL, 0x38);
+    for (UINTN i = 0; i < 0x400; i++) { if (!(i & 0xFF)) TRACE(L"dump: PCIE ind 0x%03x", (UINT32)i); mmio_w(0x38, (UINT32)i); buf[i & 0xFFF] = c_rr(NULL, 0x39); }
+    mmio_w(0x38, sidx); }
+  { UINTN sz = 0x1000; FW(f->Write, f, &sz, buf); FW(f->Flush, f); }
   TRACE(L"dump: done");
   FW(f->Close, f); FreePool(buf);
   return EFI_SUCCESS;
@@ -879,12 +916,12 @@ static void trace_write(const CHAR16 *msg)
 {
   if (!CFG(S_TRACE)) return;
   if (!g_trace && !g_trace_tried) {
-    g_trace_tried = TRUE;
     EFI_FILE_HANDLE root = g_vol_root ? g_vol_root : g_root, f;
     if (root) {
+      g_trace_tried = TRUE;
       CHAR16 *tp = own_path(L"loader_trace.txt");
-      if (!EFI_ERROR(FW(root->Open, root, &f, tp, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) FW(f->Delete, f);   /* start a fresh file */
-      if (!EFI_ERROR(FW(root->Open, root, &f, tp, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0))) g_trace = f;
+      if (!EFI_ERROR(FW(root->Open, root, &f, tp, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0))) { FW(f->SetPosition, f, 0xFFFFFFFFFFFFFFFFULL); g_trace = f; }   /* append */
+      if (!g_trace && !EFI_ERROR(FW(root->Open, root, &f, L"\\loader_trace.txt", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0))) { FW(f->SetPosition, f, 0xFFFFFFFFFFFFFFFFULL); g_trace = f; }
       FreePool(tp);
     }
   }
@@ -909,11 +946,11 @@ static void trace_log_message(const CHAR16 *msg)
   while (*p) {
     CHAR16 line[190];
     UINTN n = 0;
-    while (*p && *p != L'\\r' && *p != L'\\n' && n < 189) line[n++] = *p++;
+    while (*p && *p != L'\r' && *p != L'\n' && n < 189) line[n++] = *p++;
     line[n] = 0;
     trace_write(line);
-    if (*p == L'\\r') p++;
-    if (*p == L'\\n') p++;
+    if (*p == L'\r') p++;
+    if (*p == L'\n') p++;
   }
 }
 
@@ -1427,6 +1464,12 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
   InitializeLib(image, systab);
   g_image = image; post_code(0x01);
   init_volume(image);
+  { /* BUILD MARKER: proves which .efi ran and where it thinks its folder is. Written to / and to \\EFI\\vbios_loader. */
+    CHAR8 mk[300]; CHAR16 u[200]; SPrint(u, sizeof u, L"build=FIXED3 owndir='%s' vol_root=%d li=%d scan=%d\r\n", g_owndir ? g_owndir : L"(null)", g_vol_root != NULL, g_li != NULL, (int)g_vol_found_by_scan);
+    UINTN n = 0; for (; u[n] && n < 290; n++) mk[n] = (CHAR8)(u[n] < 0x80 ? u[n] : '?');
+    const CHAR16 *nm[2] = { L"\\FIXED3_RAN.txt", L"\\EFI\\vbios_loader\\FIXED3_RAN.txt" };
+    for (int k = 0; k < 2 && g_vol_root; k++) { EFI_FILE_HANDLE f; if (!EFI_ERROR(FW(g_vol_root->Open, g_vol_root, &f, (CHAR16 *)nm[k], EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0))) { UINTN sz = n; FW(f->Write, f, &sz, mk); FW(f->Flush, f); FW(f->Close, f); } }
+  }
   cfg_defaults(); cfg_load_file(g_vol_root, g_owndir); cfg_load_nvram();
   TRACE(L"v%s start: config %s, ui_mode=%d reset_mode=%d smart_order=%d", LOADER_VERSION, g_cfg_file_found ? g_cfg_path : L"(none)", CFG(S_UI_MODE), CFG(S_RESET_MODE), CFG(S_SMART_ORDER)); post_code(0x02);
   scan_folder(); scan_meta(); TRACE(L"%d ROM file(s) found", ncand); post_code(0x03);
