@@ -59,10 +59,14 @@ trace=1
 vfct_mode=auto
 
 # ---- experimental Resizable BAR ---------------------------------------------------------------
-# Off by default. Set to 1 ONLY for a controlled Linux test after adding pci=realloc
-# to the existing kernel command line. This late request occurs after firmware
-# resource allocation and cannot reassign the BAR or bridge windows by itself.
+# Off by default. For a guarded late request, set rebar_late=1 after adding pci=realloc
+# to the existing kernel command line. The late request cannot resize firmware's
+# already allocated BAR or bridge windows by itself.
 rebar_late=0
+# DANGEROUS: rebar_force=1 bypasses the GPU's advertised-size mask for the late
+# BAR0 selector write. This may hang/freeze the GPU or system and still does not
+# allocate an 8 GiB aperture. Only use with rebar_late=1 for a controlled test.
+rebar_force=0
 
 # ---- folders ---------------------------------------------------------------------------------
 # ROM folder on the loader's own EFI partition. Default: \EFI\vbios_loader\vbioses
