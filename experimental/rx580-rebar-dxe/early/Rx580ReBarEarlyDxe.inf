@@ -12,6 +12,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  experimental/rx580-rebar-dxe/early/Rx580ReBarEarlyPkg.dec
 
 [LibraryClasses]
   UefiDriverEntryPoint
@@ -20,10 +21,12 @@
   BaseLib
   PrintLib
 
+[Guids]
+  gEfiPciBusDriverFileGuid
+
 [Protocols]
   gEfiPciRootBridgeIoProtocolGuid ## CONSUMES
   gEfiPciHostBridgeResourceAllocationProtocolGuid ## CONSUMES
 
 [Depex]
-  gEfiPciRootBridgeIoProtocolGuid AND
-  gEfiPciHostBridgeResourceAllocationProtocolGuid
+  BEFORE gEfiPciBusDriverFileGuid
