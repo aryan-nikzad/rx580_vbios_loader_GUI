@@ -43,6 +43,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r pip-requirements.txt
           git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress/brotli
+          git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib/mipisyst
           make -C BaseTools
           echo "$GITHUB_WORKSPACE/edk2/.venv/bin" >> "$GITHUB_PATH"
 
