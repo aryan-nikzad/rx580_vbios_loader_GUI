@@ -1,30 +1,33 @@
-# ReBAR diagnostics and safe next steps
+# ReBAR diagnostics and early/late sizing path
 
-This branch adds a post-ASIC_Init diagnostic read of the Polaris BAR5 config-space mirror. It records the mirrored 4 KiB config-space area as `mir_cfg_<BDF>_post-init-before-patch.bin` when loader tracing is enabled, and prints the extended-capability chain and ReBAR fields to the loader log.
+The early-DXE branch adds two explicit 8 GiB BAR0 request points:
 
-## What this change does
+- A host-bridge resource-allocation hook targets AMD 1002:67DF before resource collection. It writes only if the live PCIe ReBAR capability advertises 8 GiB for BAR0.
+- The existing RX 580 loader attempts a late ECAM-based BAR0 size request after successful AtomBIOS ASIC_Init, in case initialization exposes the ReBAR capability only at that stage.
 
-- Reads the BAR5 mirror while the loader is still working on the same GPU.
-- Reports whether the mirrored extended-capability chain contains PCIe capability ID `0x0015` (Resizable BAR).
-- Logs the ReBAR capability dword, control dword, supported-size mask, BAR index, and selected size.
-- Saves the mirrored 4 KiB area for comparison with a healthy RX 580.
+The loader also reports the BAR5-mirrored extended-capability chain. Enable loader tracing to save config snapshots such as cfg_<BDF>_pre.bin, cfg_<BDF>_post.bin, and mir_cfg_<BDF>_post-init-before-patch.bin.
 
-It is diagnostic only. It does not manufacture a PCIe capability, request a larger BAR, change PCI resource allocation, or guarantee that Linux will expose an 8 GiB BAR.
+## What can be established
 
-## How to collect a useful comparison
+- Whether PCIe extended capability ID 0x0015 is visible at each observation point.
+- The advertised supported-size mask for each ReBAR entry.
+- Which BAR the entry describes and its current size selector.
+- Whether an 8 GiB selector request was accepted by live ECAM readback.
 
-1. Build and install this branch on the test system.
-2. Enable loader tracing in the existing loader settings.
-3. Boot once with a healthy card and collect its `loader_trace.txt` and `mir_cfg_*_post-init-before-patch.bin`.
-4. Boot with one affected card and collect the same two files after the loader has initialized it.
-5. Compare the same offsets in the two mirror dumps. Keep each file labelled with the physical card and PCI BDF.
+A selector being set is not proof that an 8 GiB MMIO address range has been allocated. The early DXE hook runs before resource collection so the platform can size the BAR at allocation time. The loader's late request runs after motherboard allocation and cannot retroactively move the BAR or adjust the bridge windows.
 
-Do not add guessed register writes to `rebar_patch.txt` yet. The proposed writes to registers `0xFC3`, `0x1559`, and `0x15FC` are a hypothesis, not verified strap controls. Writing them without proving their meaning could destabilize the GPU or hang the machine.
+## How to test
 
-## Important architectural limitation
+1. First build the loader branch and the early DXE driver. Do not flash the DXE module until the binary and integration changes have been reviewed.
+2. With the DXE module integrated, boot with one affected card and read the volatile UEFI log using tools/read_rebar_efi_log.py.
+3. Enable loader tracing and retain loader_trace.txt plus matching config and BAR5-mirror snapshots for one healthy and one affected card.
+4. Use tools/compare_rebar.py --good <healthy-snapshot.bin> --bad <affected-snapshot.bin> to compare what was visible.
+5. If only the post-ASIC_Init path can select 8 GiB, test Linux with pci=realloc added to the current kernel command line. Preserve the rest of the parameters and verify the final resource size using lspci -vv -s BB:DD.F.
 
-Resizable BAR allocation happens during PCI resource enumeration. A normal EFI application launched by GRUB runs after the motherboard firmware has already enumerated devices and assigned resources; changing BAR registers at that point cannot retroactively enlarge the allocated BAR.
+Do not add guessed writes to rebar_patch.txt. Registers 0xFC3, 0x1559, and 0x15FC have appeared as hypotheses in prior investigation but are not verified strap controls. Writes without confirmation could destabilize the GPU or hang the machine.
 
-The companion DXE package on `experiment/rx580-large-bar-dxe-candidate` is explicitly unverified. A DXE driver must be integrated into the motherboard firmware and dispatched before PCI resource collection. Even then, it can only request a size the device actually advertises and the platform can allocate. If the affected cards' PCIe extended-capability chain truly lacks the ReBAR capability, a driver that only changes the ReBAR control register cannot enable it; the source of the missing capability must first be established.
+## Limitation
 
-Do not flash modified motherboard firmware or run experimental register writes until the mirror comparison establishes a specific, documented register-level fix and the DXE driver has been built and reviewed.
+If the capability is absent before PCI resource collection but appears after ASIC_Init, the current early DXE module cannot fix that by itself: it does not execute AtomBIOS or emulate the dead SPI during the early boot phase. If the capability remains absent after ASIC_Init, or the advertised size mask lacks the 8 GiB bit, neither size selector path can safely manufacture the missing support. That requires a further device-specific finding from register/config comparisons before an additional write can be justified.
+
+Do not flash modified motherboard firmware or run speculative register writes until the DXE package is built and reviewed and the relevant diagnostics establish the capability/size behavior.
