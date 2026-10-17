@@ -3,7 +3,7 @@
 The early-DXE branch adds two explicit 8 GiB BAR0 request points:
 
 - A host-bridge resource-allocation hook targets AMD 1002:67DF before resource collection. It writes only if the live PCIe ReBAR capability advertises 8 GiB for BAR0.
-- The existing RX 580 loader attempts a late ECAM-based BAR0 size request after successful AtomBIOS ASIC_Init, in case initialization exposes the ReBAR capability only at that stage.
+- The existing RX 580 loader has an opt-in late ECAM-based BAR0 size request after successful AtomBIOS ASIC_Init. It is disabled by default; set rebar_late=1 in vbios_loader.cfg only for a controlled Linux test with pci=realloc.
 
 The loader also reports the BAR5-mirrored extended-capability chain. Enable loader tracing to save config snapshots such as cfg_<BDF>_pre.bin, cfg_<BDF>_post.bin, and mir_cfg_<BDF>_post-init-before-patch.bin.
 
@@ -22,7 +22,7 @@ A selector being set is not proof that an 8 GiB MMIO address range has been allo
 2. With the DXE module integrated, boot with one affected card and read the volatile UEFI log using tools/read_rebar_efi_log.py.
 3. Enable loader tracing and retain loader_trace.txt plus matching config and BAR5-mirror snapshots for one healthy and one affected card.
 4. Use tools/compare_rebar.py --good <healthy-snapshot.bin> --bad <affected-snapshot.bin> to compare what was visible.
-5. If only the post-ASIC_Init path can select 8 GiB, test Linux with pci=realloc added to the current kernel command line. Preserve the rest of the parameters and verify the final resource size using lspci -vv -s BB:DD.F.
+5. If only the post-ASIC_Init path can select 8 GiB, first add pci=realloc to the existing Linux kernel command line (preserve all current parameters), then set rebar_late=1 in EFI/vbios_loader/vbios_loader.cfg and run a controlled test on one card. Verify the final resource size using lspci -vv -s BB:DD.F. Set rebar_late=0 again if the test fails.
 
 Do not add guessed writes to rebar_patch.txt. Registers 0xFC3, 0x1559, and 0x15FC have appeared as hypotheses in prior investigation but are not verified strap controls. Writes without confirmation could destabilize the GPU or hang the machine.
 
