@@ -39,6 +39,7 @@ jobs:
           source .venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install -r pip-requirements.txt
+          git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress/brotli
           make -C BaseTools
           echo "$GITHUB_WORKSPACE/edk2/.venv/bin" >> "$GITHUB_PATH"
 
