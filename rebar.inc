@@ -127,16 +127,16 @@ static void rebar_request_bar0_8g(CARD *c, const CHAR16 *tag)
            tag, (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, (UINT32)off, cap, mask, cur, cur);
         if (!(mask & (1u << RB_BAR0_8G_EXP))) {
           if (!CFG(S_REBAR_FORCE)) {
-            lg(L"  [RB-SIZE %s] 8 GiB NOT advertised for BAR0; refusing unsupported size write (set rebar_force=1 to override)\\n", tag);
+            lg(L"  [RB-SIZE %s] 8 GiB NOT advertised for BAR0; refusing unsupported size write (set rebar_force=1 to override)\n", tag);
             TRACE(L"RB-SIZE %s %02x:%02x.%x BAR0 no-8G mask=%05x force=0", tag,
                   (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, mask);
             return;
           }
-          lg(L"  [RB-SIZE %s] WARNING: rebar_force=1; ignoring missing 8 GiB support bit and attempting selector write. Hardware support is NOT established.\\n", tag);
+          lg(L"  [RB-SIZE %s] WARNING: rebar_force=1; ignoring missing 8 GiB support bit and attempting selector write. Hardware support is NOT established.\n", tag);
           TRACE(L"RB-SIZE %s %02x:%02x.%x BAR0 no-8G mask=%05x FORCE=1", tag,
                 (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, mask);
         } else {
-          lg(L"  [RB-SIZE %s] 8 GiB is advertised for BAR0; proceeding\\n", tag);
+          lg(L"  [RB-SIZE %s] 8 GiB is advertised for BAR0; proceeding\n", tag);
         }
         if (cur == RB_BAR0_8G_EXP) {
           lg(L"  [RB-SIZE %s] BAR0 already selects 8 GiB; no write needed\n", tag);
@@ -150,7 +150,7 @@ static void rebar_request_bar0_8g(CARD *c, const CHAR16 *tag)
         __asm__ volatile("mfence" ::: "memory");
         UINT32 rb = *(volatile UINT32 *)(ea + ctloff);
         BOOLEAN Accepted = (((rb >> 8) & 0x1Fu) == RB_BAR0_8G_EXP);
-        lg(L"  [RB-SIZE %s] BAR0 selector %08x -> %08x; readback=%08x (%s)\\n",
+        lg(L"  [RB-SIZE %s] BAR0 selector %08x -> %08x; readback=%08x (%s)\n",
            tag, ctl, nw, rb, Accepted
              ? (CFG(S_REBAR_FORCE) && !(mask & (1u << RB_BAR0_8G_EXP))
                   ? L"selector accepted despite unsupported-size mask; functionality NOT proven"
@@ -250,13 +250,13 @@ static void rebar_patch_apply(CARD *c)
    * pre-enumeration DXE hook added in this branch. */
   if (CFG(S_REBAR_LATE)) {
     if (CFG(S_REBAR_FORCE)) {
-      lg(L"   [RB-SIZE] rebar_late=1 rebar_force=1: FORCED late selector request enabled; unsupported size writes may hang/freeze the GPU or system. Linux pci=realloc still required.\\n");
+      lg(L"   [RB-SIZE] rebar_late=1 rebar_force=1: FORCED late selector request enabled; unsupported size writes may hang/freeze the GPU or system. Linux pci=realloc still required.\n");
     } else {
-      lg(L"   [RB-SIZE] rebar_late=1 rebar_force=0: late selector request enabled, but 8 GiB supported-size bit is still required. Linux pci=realloc still required.\\n");
+      lg(L"   [RB-SIZE] rebar_late=1 rebar_force=0: late selector request enabled, but 8 GiB supported-size bit is still required. Linux pci=realloc still required.\n");
     }
     rebar_request_bar0_8g(c, L"post-ASIC_Init");
   } else {
-    lg(L"   [RB-SIZE] rebar_late=0: late BAR size writes disabled (rebar_force has no effect unless rebar_late=1).\\n");
+    lg(L"   [RB-SIZE] rebar_late=0: late BAR size writes disabled (rebar_force has no effect unless rebar_late=1).\n");
   }
   rebar_probe(c, L"post-ASIC_Init-before-resource-reallocation", CFG(S_TRACE));
   rebar_mirror_report(c, L"post-init-before-patch");
