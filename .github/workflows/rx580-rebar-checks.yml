@@ -1,4 +1,4 @@
-name: RX580 ReBAR DXE build check
+name: RX580 forced 8 GiB ReBAR DXE build check
 
 on:
   push:
@@ -78,13 +78,13 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
           GenSec -o "$BUILD_DIR/Rx580ReBarEarlyDxe.pe32.sec" "$DXE" -S EFI_SECTION_PE32
           GenSec -o "$BUILD_DIR/Rx580ReBarEarlyDxe.name.sec" -S EFI_SECTION_USER_INTERFACE -n "RX580 ReBAR Early DXE"
-          GenFfs -g 5d4c6f81-70c0-49a6-962b-440e58119271 -o "$GITHUB_WORKSPACE/artifacts/Rx580ReBarEarlyDxe.ffs" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.pe32.sec" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.name.sec" -t EFI_FV_FILETYPE_DRIVER --checksum
+          GenFfs -g 5d4c6f81-70c0-49a6-962b-440e58119271 -o "$GITHUB_WORKSPACE/artifacts/Rx580ReBarForce8GiB.ffs" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.pe32.sec" -i "$BUILD_DIR/Rx580ReBarEarlyDxe.name.sec" -t EFI_FV_FILETYPE_DRIVER --checksum
 
       - name: Upload DXE FFS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rx580-rebar-early-dxe-ffs
-          path: artifacts/Rx580ReBarEarlyDxe.ffs
+          name: rx580-rebar-force-8gb-dxe-ffs
+          path: artifacts/Rx580ReBarForce8GiB.ffs
           if-no-files-found: error
 
       - name: Syntax-check diagnostic tools
