@@ -1,0 +1,10 @@
+[Defines]
+  DEC_SPECIFICATION              = 0x0001001B
+  PACKAGE_NAME                   = Rx580ReBarEarlyPkg
+  PACKAGE_GUID                   = E764E72E-C69F-4D5E-9C20-1D478A5D9E61
+  PACKAGE_VERSION                = 1.0
+
+[Guids]
+  # EFI DXE PCI Bus Driver FFS file GUID. BEFORE forces this driver to
+  # dispatch immediately before the PCI bus driver, when the latter is ready.
+  gEfiPciBusDriverFileGuid       = 3C1DE39F-D207-408A-AACC-731CFB7F1DD7
