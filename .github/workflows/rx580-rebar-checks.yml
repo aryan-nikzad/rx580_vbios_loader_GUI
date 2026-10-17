@@ -67,7 +67,11 @@ jobs:
           set -euxo pipefail
           cd edk2
           export PACKAGES_PATH="$GITHUB_WORKSPACE/edk2:$GITHUB_WORKSPACE"
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          export PYTHON_COMMAND=python3
+          set +u
           source edksetup.sh
+          set -u
           DXE="$(find Build/Rx580ReBarEarly -type f -name Rx580ReBarEarlyDxe.efi -print -quit)"
           test -n "$DXE"
           BUILD_DIR="$(dirname "$DXE")"
