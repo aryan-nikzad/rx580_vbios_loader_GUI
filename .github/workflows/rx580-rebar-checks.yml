@@ -54,7 +54,9 @@ jobs:
           export PACKAGES_PATH="$GITHUB_WORKSPACE/edk2:$GITHUB_WORKSPACE"
           export WORKSPACE="$GITHUB_WORKSPACE/edk2"
           export PYTHON_COMMAND=python3
+          set +u
           source edksetup.sh
+          set -u
           build -p "$GITHUB_WORKSPACE/experimental/rx580-rebar-dxe/early/Rx580ReBarEarly.dsc" -a X64 -t GCC5 -b DEBUG
 
       - name: Package built DXE module as FFS
