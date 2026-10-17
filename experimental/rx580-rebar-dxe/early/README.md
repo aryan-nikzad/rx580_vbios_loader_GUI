@@ -8,7 +8,7 @@ This directory contains an experimental combined path for the ASUS B250 MINING E
 
 ## Important limit: not yet hardware-verified
 
-The forced early path does not fabricate a missing PCIe extended capability or BAR0 entry, and it does not run ASIC_Init. If ReBAR only appears after ASIC_Init, the early driver logs that it cannot find the capability and cannot apply the force. If the capability is present but its mask omits 8 GiB, the driver still attempts selector exponent 13; a successful readback does not prove the hardware can operate at that size. The optional late loader path remains guarded by the advertised-size mask and off by default; set `rebar_late=1` only for a controlled Linux test with `pci=realloc` already added to the existing kernel command line.
+The forced early path does not fabricate a missing PCIe extended capability or BAR0 entry, and it does not run ASIC_Init. If ReBAR only appears after ASIC_Init, the early driver logs that it cannot find the capability and cannot apply the force. If the capability is present but its mask omits 8 GiB, the driver still attempts selector exponent 13; a successful readback does not prove the hardware can operate at that size. The optional late loader path remains off by default. Set `rebar_late=1` for a controlled Linux test with `pci=realloc`; additionally set `rebar_force=1` to bypass the advertised-size mask. With `rebar_force=0` (default), the late path retains its size-mask guard.
 
 If the post-ASIC_Init ECAM snapshot still has no ReBAR capability, or its supported-size mask lacks bit 13, that is evidence of a GPU register/strap initialization difference. Do not compensate with guessed writes.
 
@@ -34,12 +34,12 @@ A log exists only if the module dispatched and the firmware exposed runtime EFI 
 
 ## Loader late fallback and Linux resource reassignment
 
-When rebar_late=1 is explicitly configured, the late fallback in rebar.inc requests BAR0=8 GiB only after ASIC_Init, after reading the live ECAM configuration and confirming that the GPU advertises that size. It does not rewrite BAR0's base address or reprogram bridge windows. Verify with lspci -vv -s BB:DD.F and sudo lspci -xxxx -s BB:DD.F that PCI resource size and ReBAR control agree.
+When `rebar_late=1` is explicitly configured, the late fallback in `rebar.inc` requests BAR0=8 GiB only after `ASIC_Init`. By default, it checks the advertised-size mask. To force the selector despite the mask, also set `rebar_force=1`. Neither mode rewrites BAR0's base address or reprograms bridge windows. Verify with lspci -vv -s BB:DD.F and sudo lspci -xxxx -s BB:DD.F that PCI resource size and ReBAR control agree.
 
 ## Safety and rollback
 
 - The early source targets only AMD device 1002:67DF and BAR0. Other devices are untouched.
-- The early forced driver ignores the supported-size mask. If 8 GiB is not advertised, this unsupported selector request may fail, hang the GPU, hang boot, or prevent POST.
+- The early forced driver and optional late `rebar_force=1` path can ignore the supported-size mask. If 8 GiB is not advertised, an unsupported selector request may fail, hang the GPU, hang boot, or prevent POST.
 - The volatile UEFI log is diagnostic; its absence is not proof that the card lacks ReBAR.
 - Treat this forced build as higher risk than normal ReBARUEFI: unsupported BAR-size selection can cause a GPU lockup, boot hang, or failure to POST. Keep the known-good full SPI dump and a working CH341A/external programmer ready before considering a flash. Inspect the FFS and integrated BIOS, and test with one affected RX 580 only.
 - Hardware behavior is not validated in CI. First test one RX 580, not all four at once.
