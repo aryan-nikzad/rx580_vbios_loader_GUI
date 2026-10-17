@@ -7,4 +7,4 @@
 [Guids]
   # EFI DXE PCI Bus Driver FFS file GUID. BEFORE forces this driver to
   # dispatch immediately before the PCI bus driver, when the latter is ready.
-  gEfiPciBusDriverFileGuid       = 3C1DE39F-D207-408A-AACC-731CFB7F1DD7
+  gEfiPciBusDriverFileGuid       = { 0x3c1de39f, 0xd207, 0x408a, { 0xaa, 0xcc, 0x73, 0x1c, 0xfb, 0x7f, 0x1d, 0xd7 } }
