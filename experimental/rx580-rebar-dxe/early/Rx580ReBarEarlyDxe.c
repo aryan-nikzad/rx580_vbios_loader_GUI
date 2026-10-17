@@ -5,9 +5,12 @@
  * The hook follows the host-bridge resource-allocation approach of
  * xCuri0/ReBarUEFI (MIT, copyright xCuri0 2022-2023).
  *
- * This module does not fake a missing PCIe capability or run ASIC_Init. It
- * selects 8 GiB only when the live endpoint advertises that size. Firmware
- * must still have enough 64-bit MMIO space to allocate the BAR.
+ * Forced experiment: request selector exponent 13 (8 GiB) for BAR0 even when
+ * the ReBAR supported-size mask does not advertise it. This intentionally
+ * violates the advertised-size contract and may hang the platform or GPU.
+ * It still requires a real ReBAR extended capability and a BAR0 entry; it
+ * never fabricates PCI configuration space or runs ASIC_Init.
+ * Firmware must still have enough 64-bit MMIO space to allocate the BAR.
  */
 #include <Uefi.h>
 #include <IndustryStandard/Pci.h>
@@ -255,11 +258,13 @@ RequestRx580Bar0EightGiB (
              (UINT32)RebarOffset, Capability, SupportedMask, CurrentSize, REBAR_SIZE_8G_EXP);
 
     if ((SupportedMask & REBAR_8G_MASK_BIT) == 0) {
-      LogLine (L"  8 GiB is not advertised by BAR0 (mask bit 13 clear); no write performed.\r\n");
-      return;
+      LogLine (L"  WARNING: 8 GiB is NOT advertised by BAR0 (mask bit 13 clear); forced experiment ignores this mask.\r\n");
+    } else {
+      LogLine (L"  8 GiB is advertised by BAR0; applying the same forced selector request.\r\n");
     }
     if (CurrentSize == REBAR_SIZE_8G_EXP) {
-      LogLine (L"  BAR0 already selects 8 GiB.\r\n");
+      LogLine (L"  BAR0 already selects 8 GiB; supported-mask-bit13=%u.\r\n",
+               (SupportedMask & REBAR_8G_MASK_BIT) != 0 ? 1U : 0U);
       return;
     }
 
@@ -277,7 +282,7 @@ RequestRx580Bar0EightGiB (
     LogLine (L"  BAR0 control new=%08x readback=%08x result=%s\r\n",
              Control, ReadBack,
              (((ReadBack & REBAR_CTRL_SIZE_MASK) >> REBAR_CTRL_SIZE_SHIFT) == REBAR_SIZE_8G_EXP)
-               ? L"8 GiB selected before resource allocation"
+               ? L"8 GiB selector readback accepted; hardware support is not proven"
                : L"FAILED");
     return;
   }
@@ -341,7 +346,7 @@ Rx580ReBarEarlyDxeEntryPoint (
   (VOID)SystemTable;
   mLog[0] = L'\0';
   mLogChars = 0;
-  LogLine (L"RX580 ReBAR DXE started. Target=1002:67DF BAR0=8GiB; no unsupported-size writes.\r\n");
+  LogLine (L"RX580 ReBAR FORCE DXE started. Target=1002:67DF BAR0 selector=8GiB even if unsupported-size mask omits it. This is an unverified boot-risk experiment.\r\n");
 
   Status = gBS->LocateHandleBuffer (
                   ByProtocol,
