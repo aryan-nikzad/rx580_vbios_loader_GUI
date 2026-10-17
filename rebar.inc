@@ -55,7 +55,7 @@ static void rebar_probe(CARD *c, const CHAR16 *tag, BOOLEAN save)
     lg(L"  [CFG %s]   ext cap @%03x id=%04x v%d%s\n", tag, (UINT32)off, id, ver, id == 0x15 ? L"  <- Resizable BAR" : L"");
     if (id == 0x15 && off + 12 <= 0x1000) {
       have_rebar = TRUE;
-      UINT32 ctrl0 = buf[(off + 8) / 4]; UINTN nb = (ctrl0 >> 5) & 7; if (nb < 1) nb = 1; if (nb > 6) nb = 6;
+      UINT32 ctrl0 = buf[(off + 8) / 4]; UINTN nb = (ctrl0 >> 5) & 7; if (nb == 0 || nb > 6) { lg(L"  [CFG %s] invalid ReBAR BAR count %d; stopping parse\\n", tag, (UINT32)nb); break; }
       for (UINTN k = 0; k < nb && off + 4 + 8 * k + 8 <= 0x1000; k++) {
         UINT32 cap = buf[(off + 4 + 8 * k) / 4], ctl = buf[(off + 8 + 8 * k) / 4];
         lg(L"  [CFG %s]     ReBAR entry %d: cap=%08x ctrl=%08x  BAR idx %d, current size 2^%d MB, supported-size mask %05x%s\n", tag, (UINT32)k, cap, ctl,
@@ -234,7 +234,12 @@ static void rebar_patch_apply(CARD *c)
   /* Give a late-exposed ReBAR capability one safe, advertised-size request.
    * This still needs PCI resource reallocation; it is not a substitute for the
    * pre-enumeration DXE hook added in this branch. */
-  rebar_request_bar0_8g(c, L"post-ASIC_Init");
+  if (CFG(S_REBAR_LATE)) {
+    lg(L"   [RB-SIZE] rebar_late=1: attempting late BAR0=8 GiB selection. Linux pci=realloc is required for a meaningful resource-allocation test.\\n");
+    rebar_request_bar0_8g(c, L"post-ASIC_Init");
+  } else {
+    lg(L"   [RB-SIZE] rebar_late=0: late BAR size writes disabled; enable explicitly only for a controlled pci=realloc test.\\n");
+  }
   rebar_probe(c, L"post-ASIC_Init-before-resource-reallocation", CFG(S_TRACE));
   rebar_mirror_report(c, L"post-init-before-patch");
   EFI_FILE_HANDLE root = g_vol_root ? g_vol_root : g_root, f;
