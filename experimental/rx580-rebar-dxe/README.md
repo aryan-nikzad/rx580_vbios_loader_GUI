@@ -1,18 +1,18 @@
-# RX580 Large BAR DXE — review candidate
+# RX580 Large BAR DXE — experimental candidate
 
-This directory contains an experimental companion UEFI DXE-driver package intended to request an 8 GiB Resizable BAR (BAR0) for AMD RX 580 PCI ID 1002:67DF before PCI resource collection.
+This directory contains an experimental 8 GiB Resizable BAR (BAR0) path for AMD RX 580 PCI ID 1002:67DF.
 
-## Contents
+## Combined implementation
 
-- `rx580_rebar_dxe_review_package.zip`: source, EDK2 INF/DSC files, and implementation notes.
-- [ReBAR diagnostics and safe next steps](REBAR_DIAGNOSTICS.md): explains the new BAR5-mirror probe, what it can establish, and why guessed register writes are not enabled by default.
+- [Early DXE + late loader fallback](early/README.md): buildable EDK2 source intended to request 8 GiB before resource collection, with runtime EFI logging.
+- [ReBAR diagnostics](REBAR_DIAGNOSTICS.md): details how to compare the live PCIe capability chain and BAR5 mirror.
+
+The existing loader's rebar.inc now also attempts a late ECAM-based BAR0 size request after ASIC_Init, but only if the live config space advertises the 8 GiB size. This late path does not move the BAR's base or reprogram bridge windows; use Linux pci=realloc for a controlled test when late selection succeeds.
 
 ## Verification status
 
-**Review candidate only; not verified for hardware use.** The package has not been compiled in a real EDK2 workspace or tested on the motherboard. It must be integrated into the motherboard firmware and dispatched before PCI bus enumeration; launching it from GRUB as an ordinary EFI application is too late to affect the initial resource allocation. The driver checks the device's advertised supported-size mask before requesting 8 GiB, but successful allocation also depends on firmware resource windows and bridge allocation.
+**Not hardware-verified.** The module has not been built in a real EDK2 workspace or tested on the ASUS B250 MINING EXPERT. The DXE driver must be integrated into the motherboard firmware and dispatched before PCI resource collection; launching it from GRUB as an ordinary EFI application is too late for the early request.
 
-The `fix/rebar-mirror-diagnostics` branch adds diagnostic reads of the GPU's BAR5 config-space mirror after ASIC initialization. These diagnostics do not create a missing PCIe extended capability or change resource allocation. Use the mirror dump from a healthy card and an affected card to establish whether the capability is actually absent in the GPU-visible mirror.
+Neither path creates a missing PCIe capability or invents unsupported-size bits. If the affected cards do not expose ReBAR until after ASIC_Init, the late request may change the selector but still depends on operating-system PCI resource reassignment. If the live post-init capability remains absent, this branch is diagnostic, not a complete hardware fix.
 
-Do not flash altered motherboard firmware or apply speculative register writes based solely on this candidate. Review and build it in an EDK2 workspace first. If the device genuinely does not advertise ReBAR, a DXE driver that only requests a larger advertised size is not sufficient.
-
-No changes have been merged into `main`.
+Do not flash altered motherboard firmware or apply speculative register writes until the module has been reviewed, built, and tested with one card and a recovery path available.
