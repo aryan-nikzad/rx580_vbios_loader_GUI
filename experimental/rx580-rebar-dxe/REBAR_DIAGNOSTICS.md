@@ -3,7 +3,7 @@
 The early-DXE branch adds two explicit 8 GiB BAR0 request points:
 
 - A forced host-bridge resource-allocation hook targets AMD `1002:67DF` before resource collection. It requires the real ReBAR capability and BAR0 entry, but deliberately writes selector exponent 13 even if the size mask does not advertise 8 GiB.
-- The existing RX 580 loader has an opt-in late ECAM-based BAR0 size request after successful AtomBIOS ASIC_Init. It is disabled by default; set rebar_late=1 in vbios_loader.cfg only for a controlled Linux test with pci=realloc.
+- The RX 580 loader has an opt-in late ECAM-based BAR0 size request after successful AtomBIOS ASIC_Init. Set `rebar_late=1` for a controlled test with Linux `pci=realloc`. The additional `rebar_force=1` setting bypasses the advertised-size-mask check; both settings must be enabled to force the late selector request.
 
 The loader also reports the BAR5-mirrored extended-capability chain. Enable loader tracing to save config snapshots such as cfg_<BDF>_pre.bin, cfg_<BDF>_post.bin, and mir_cfg_<BDF>_post-init-before-patch.bin.
 
@@ -28,6 +28,6 @@ Do not add guessed writes to rebar_patch.txt. Registers 0xFC3, 0x1559, and 0x15F
 
 ## Limitation
 
-If the capability is absent before PCI resource collection but appears after ASIC_Init, the current early DXE module cannot fix that by itself: it does not execute AtomBIOS or emulate the dead SPI during the early boot phase. If the capability remains absent after ASIC_Init, neither path can safely manufacture that missing capability. If the capability is present but the advertised size mask lacks bit 13, this forced early build deliberately tries the selector anyway; that is a risky experiment, not proof that the device supports 8 GiB. The late loader path still refuses an unsupported-size request.
+If the capability is absent before PCI resource collection but appears after ASIC_Init, the current early DXE module cannot fix that by itself: it does not execute AtomBIOS or emulate the dead SPI during the early boot phase. If the capability remains absent after ASIC_Init, neither path can safely manufacture that missing capability. If the capability is present but the advertised size mask lacks bit 13, this forced early build deliberately tries the selector anyway; that is a risky experiment, not proof that the device supports 8 GiB. The late loader path refuses an unsupported-size request by default. Set `rebar_late=1` and `rebar_force=1` to deliberately bypass that check after ASIC_Init. This can hang the GPU/system; the selector write still does not allocate the BAR or bridge windows. `rebar_force=0` should remain the default outside this experiment.
 
 Do not flash modified motherboard firmware or run speculative register writes until the DXE package is built and reviewed and the relevant diagnostics establish the capability/size behavior.
