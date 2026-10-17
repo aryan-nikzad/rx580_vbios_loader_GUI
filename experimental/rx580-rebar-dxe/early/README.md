@@ -3,12 +3,12 @@
 This directory contains an experimental combined path for the ASUS B250 MINING EXPERT and Polaris 10 RX 580 cards:
 
 1. Early DXE request: Rx580ReBarEarlyDxe.c hooks the PCI host-bridge resource-allocation protocol before resource collection. If the live GPU advertises PCIe Resizable BAR capability ID 0x0015 and BAR0's size mask advertises 8 GiB, it selects size exponent 13 so firmware can allocate it at the correct time.
-2. Late loader fallback: after the existing loader completes AtomBIOS ASIC_Init, rebar.inc checks the live configuration through ACPI MCFG/ECAM. If initialization has exposed a valid ReBAR capability for BAR0 and 8 GiB is explicitly supported, it changes only the BAR0 size selector and verifies readback.
+2. Optional late loader fallback: after AtomBIOS ASIC_Init, rebar.inc can inspect the live configuration through ACPI MCFG/ECAM. This write is disabled by default. Set rebar_late=1 in EFI/vbios_loader/vbios_loader.cfg only for a controlled Linux test with pci=realloc already added to the kernel command line. If the live capability advertises 8 GiB for BAR0, it changes only the selector and verifies readback.
 3. Diagnostics: the DXE module writes a volatile runtime variable named RX580ReBarEarlyLog; tools/read_rebar_efi_log.py prints it in Linux. tools/compare_rebar.py compares the loader's 4 KiB PCI config snapshots.
 
 ## Important limit: not yet hardware-verified
 
-Neither code path fabricates a PCIe extended capability or invents device-supported sizes. If a card does not expose ReBAR before enumeration but only exposes it after ASIC_Init, the early DXE path will log that fact and the late loader path will attempt a selector change. Since the late path runs after the motherboard allocator, Linux may have to reassign PCI resources. For testing the late path, add pci=realloc to the existing Linux kernel command line while preserving all existing parameters.
+Neither code path fabricates a PCIe extended capability or invents device-supported sizes. If a card does not expose ReBAR before enumeration but only exposes it after ASIC_Init, the early DXE path logs that fact; the optional late request remains off until rebar_late=1 is set in vbios_loader.cfg. The late path runs after the motherboard allocator, so Linux must be tested with pci=realloc while preserving all existing kernel parameters. Without that controlled setup, leave rebar_late disabled.
 
 If the post-ASIC_Init ECAM snapshot still has no ReBAR capability, or its supported-size mask lacks bit 13, that is evidence of a GPU register/strap initialization difference. Do not compensate with guessed writes.
 
@@ -34,7 +34,7 @@ A log exists only if the module dispatched and the firmware exposed runtime EFI 
 
 ## Loader late fallback and Linux resource reassignment
 
-The late fallback in rebar.inc requests BAR0=8 GiB only after ASIC_Init, after reading the live ECAM configuration and confirming that the GPU advertises that size. It does not rewrite BAR0's base address or reprogram bridge windows. Verify with lspci -vv -s BB:DD.F and sudo lspci -xxxx -s BB:DD.F that PCI resource size and ReBAR control agree.
+When rebar_late=1 is explicitly configured, the late fallback in rebar.inc requests BAR0=8 GiB only after ASIC_Init, after reading the live ECAM configuration and confirming that the GPU advertises that size. It does not rewrite BAR0's base address or reprogram bridge windows. Verify with lspci -vv -s BB:DD.F and sudo lspci -xxxx -s BB:DD.F that PCI resource size and ReBAR control agree.
 
 ## Safety and rollback
 
