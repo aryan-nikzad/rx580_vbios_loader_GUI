@@ -22,7 +22,7 @@ On Linux, set EDK2_ROOT to a configured Tianocore edk2 checkout and run:
 
     EDK2_ROOT=~/src/edk2 TOOLCHAIN=GCC5 sh experimental/rx580-rebar-dxe/early/build_in_edk2.sh
 
-The firmware integration path varies by board. Before flashing, inspect the generated module and integrate it with UEFITool/UEFIPatch following the existing board-specific workflow. Keep a known-good full BIOS backup and an external CH341A programmer available.
+The CI workflow also packages the compiled driver as an FFS artifact named rx580-rebar-early-dxe-ffs. That FFS is a driver payload, not a complete motherboard BIOS; integrate it into the DXE volume with UEFITool/UEFIPatch and confirm it dispatches before PCI resource collection. The firmware integration path varies by board. Before flashing, inspect the generated module and integrate it with UEFITool/UEFIPatch following the existing board-specific workflow. Keep a known-good full BIOS backup and an external CH341A programmer available.
 
 ## Log variable
 
