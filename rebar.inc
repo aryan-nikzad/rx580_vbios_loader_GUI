@@ -74,6 +74,92 @@ static void rebar_probe(CARD *c, const CHAR16 *tag, BOOLEAN save)
   FreePool(buf);
 }
 
+/* Request the 8 GiB BAR0 size after AtomBIOS ASIC_Init.
+ * This is intentionally a late fallback: it can change the endpoint's ReBAR
+ * selector only if the live PCIe config space advertises BAR0 + 8 GiB. It
+ * cannot allocate/re-align the BAR; the OS must reassign resources (pci=realloc)
+ * or the earlier DXE hook must make the request before PCI resource collection.
+ */
+#define RB_REBAR_EXT_CAP_ID 0x0015u
+#define RB_BAR0_8G_EXP      13u
+static void rebar_request_bar0_8g(CARD *c, const CHAR16 *tag)
+{
+  if (!c || c->demo) return;
+  UINT8 *ea = ecam_addr((UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
+  if (!ea) {
+    lg(L"  [RB-SIZE %s] %02x:%02x.%x: ECAM/MCFG unavailable; cannot inspect live ReBAR config space\n",
+       tag, (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
+    TRACE(L"RB-SIZE %s %02x:%02x.%x no-ecam", tag, (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
+    return;
+  }
+
+  UINT32 id = *(volatile UINT32 *)(ea + 0);
+  UINT16 vid = (UINT16)(id & 0xFFFFu), did = (UINT16)(id >> 16);
+  if (vid != AMD_VID || did != c->did) {
+    lg(L"  [RB-SIZE %s] PCI identity changed/unexpected at %02x:%02x.%x: %04x:%04x (expected 1002:%04x); no write\n",
+       tag, (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, vid, did, c->did);
+    return;
+  }
+
+  UINTN off = 0x100;
+  for (UINTN guard = 0; guard < 64 && off >= 0x100 && off <= 0xFFC; guard++) {
+    UINT32 h = *(volatile UINT32 *)(ea + off);
+    if (h == 0 || h == 0xFFFFFFFFu) break;
+    UINT32 capid = h & 0xFFFFu;
+    UINTN next = (h >> 20) & 0xFFCu;
+    if (capid == RB_REBAR_EXT_CAP_ID) {
+      UINT32 first_ctrl = *(volatile UINT32 *)(ea + off + 8);
+      UINTN nbars = (first_ctrl >> 5) & 7u;
+      if (nbars < 1) nbars = 1;
+      if (nbars > 6) nbars = 6;
+      for (UINTN k = 0; k < nbars; k++) {
+        UINTN capoff = off + 4 + 8 * k, ctloff = off + 8 + 8 * k;
+        if (ctloff + 4 > 0x1000) break;
+        UINT32 cap = *(volatile UINT32 *)(ea + capoff);
+        UINT32 ctl = *(volatile UINT32 *)(ea + ctloff);
+        UINTN bar = ctl & 7u;
+        UINT32 mask = (cap >> 4) & 0xFFFFFu;
+        UINT32 cur = (ctl >> 8) & 0x1Fu;
+        if (bar != 0) continue;
+        lg(L"  [RB-SIZE %s] %02x:%02x.%x ReBAR @%03x BAR0 cap=%08x mask=%05x size-exp=%u (current 2^%u MiB)\n",
+           tag, (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, (UINT32)off, cap, mask, cur, cur);
+        if (!(mask & (1u << RB_BAR0_8G_EXP))) {
+          lg(L"  [RB-SIZE %s] 8 GiB NOT advertised for BAR0; refusing unsupported size write\n", tag);
+          TRACE(L"RB-SIZE %s %02x:%02x.%x BAR0 no-8G mask=%05x", tag,
+                (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, mask);
+          return;
+        }
+        if (cur == RB_BAR0_8G_EXP) {
+          lg(L"  [RB-SIZE %s] BAR0 already selects 8 GiB; no write needed\n", tag);
+          TRACE(L"RB-SIZE %s %02x:%02x.%x BAR0 already-8G", tag,
+                (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
+          return;
+        }
+
+        UINT32 nw = (ctl & ~0x1F00u) | (RB_BAR0_8G_EXP << 8);
+        *(volatile UINT32 *)(ea + ctloff) = nw;
+        __asm__ volatile("mfence" ::: "memory");
+        UINT32 rb = *(volatile UINT32 *)(ea + ctloff);
+        lg(L"  [RB-SIZE %s] BAR0 selector %08x -> %08x; readback=%08x (%s)\n",
+           tag, ctl, nw, rb, (((rb >> 8) & 0x1Fu) == RB_BAR0_8G_EXP) ? L"8 GiB selected" : L"WRITE FAILED");
+        TRACE(L"RB-SIZE %s %02x:%02x.%x BAR0 ctl=%08x rb=%08x", tag,
+              (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, nw, rb);
+        return;
+      }
+      lg(L"  [RB-SIZE %s] ReBAR capability present but no BAR0 entry was found\n", tag);
+      TRACE(L"RB-SIZE %s %02x:%02x.%x rebar-no-bar0", tag,
+            (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
+      return;
+    }
+    if (next == 0 || next <= off) break;
+    off = next;
+  }
+  lg(L"  [RB-SIZE %s] %02x:%02x.%x ReBAR extended capability absent after ASIC_Init; a selector write cannot create it\n",
+     tag, (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
+  TRACE(L"RB-SIZE %s %02x:%02x.%x rebar-absent", tag,
+        (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn);
+}
+
 /* Read the GPU's config-space mirror through BAR5. Unlike EFI_PCI_IO, this path
  * can expose the extended-capability bytes on boards where direct config reads
  * stop at 0xFF. This is diagnostic only: reporting a capability is not the same
@@ -145,6 +231,11 @@ static BOOLEAN rb_bdf(const CHAR8 *s, UINTN n, UINT32 *b, UINT32 *d, UINT32 *f)
 static void rebar_patch_apply(CARD *c)
 {
   if (!c || !c->pio || !g_mmio) return;
+  /* Give a late-exposed ReBAR capability one safe, advertised-size request.
+   * This still needs PCI resource reallocation; it is not a substitute for the
+   * pre-enumeration DXE hook added in this branch. */
+  rebar_request_bar0_8g(c, L"post-ASIC_Init");
+  rebar_probe(c, L"post-ASIC_Init-before-resource-reallocation", CFG(S_TRACE));
   rebar_mirror_report(c, L"post-init-before-patch");
   EFI_FILE_HANDLE root = g_vol_root ? g_vol_root : g_root, f;
   if (!root) return;
