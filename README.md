@@ -208,3 +208,10 @@ Most things in this project were created with AI assistance, so there may be mis
 **Big thanks and lots of love ❤️ to Claude (Anthropic) and ChatGPT (OpenAI) for their help in building this lovely application!**
 
 **Made with love by Reza Nikzad. Free to use, modify, sell, eat, or do whatever you want with it!**
+
+ 
+## Experimental RX 580 8 GiB ReBAR path
+
+Branch [experiment/rx580-rebar-pre-enumeration](https://github.com/aryan-nikzad/rx580_vbios_loader_GUI/tree/experiment/rx580-rebar-pre-enumeration/experimental/rx580-rebar-dxe/early) combines an early EDK2 DXE BAR0-size request, a post-ASIC_Init ECAM fallback in the loader, an EFI runtime diagnostic log reader, and a snapshot comparison tool.
+
+This remains a hardware-test candidate, not a confirmed fix. The early driver requests 8 GiB only when the card advertises that BAR0 size. The late fallback can select the size after initialization but cannot itself reallocate the BAR or bridge window; Linux may need pci=realloc. See the branch's early/README.md before integrating the DXE module into firmware. Do not flash a modified BIOS until the module builds, is reviewed, and a recovery path is ready.
