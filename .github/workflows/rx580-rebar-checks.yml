@@ -7,6 +7,12 @@ on:
   pull_request:
     paths:
       - "experimental/rx580-rebar-dxe/early/**"
+      - "rebar.inc"
+      - "config.c"
+      - "loader.h"
+      - "vbios_loader.cfg.example"
+      - "experimental/rx580-rebar-dxe/REBAR_DIAGNOSTICS.md"
+      - "README.md"
       - "tools/compare_rebar.py"
       - "tools/read_rebar_efi_log.py"
       - ".github/workflows/rx580-rebar-checks.yml"
