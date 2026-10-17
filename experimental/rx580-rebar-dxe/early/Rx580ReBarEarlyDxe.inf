@@ -25,5 +25,5 @@
   gEfiPciHostBridgeResourceAllocationProtocolGuid ## CONSUMES
 
 [Depex]
-  gEfiPciRootBridgeIoProtocolGuid
+  gEfiPciRootBridgeIoProtocolGuid AND
   gEfiPciHostBridgeResourceAllocationProtocolGuid
