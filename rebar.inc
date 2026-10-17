@@ -95,7 +95,7 @@ static void rebar_request_bar0_8g(CARD *c, const CHAR16 *tag)
 
   UINT32 id = *(volatile UINT32 *)(ea + 0);
   UINT16 vid = (UINT16)(id & 0xFFFFu), did = (UINT16)(id >> 16);
-  if (vid != AMD_VID || did != c->did) {
+  if (vid != AMD_VID || did != 0x67DFu || did != c->did) {
     lg(L"  [RB-SIZE %s] PCI identity changed/unexpected at %02x:%02x.%x: %04x:%04x (expected 1002:%04x); no write\n",
        tag, (UINT32)c->bus, (UINT32)c->dev, (UINT32)c->fn, vid, did, c->did);
     return;
