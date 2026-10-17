@@ -58,6 +58,12 @@ trace=1
 #   xsdt = patch the XSDT directly (use this if the PC freezes inside the ACPI call; see loader_trace.txt); off = none
 vfct_mode=auto
 
+# ---- experimental Resizable BAR ---------------------------------------------------------------
+# Off by default. Set to 1 ONLY for a controlled Linux test after adding pci=realloc
+# to the existing kernel command line. This late request occurs after firmware
+# resource allocation and cannot reassign the BAR or bridge windows by itself.
+rebar_late=0
+
 # ---- folders ---------------------------------------------------------------------------------
 # ROM folder on the loader's own EFI partition. Default: \EFI\vbios_loader\vbioses
 #rom_dir=\EFI\vbios_loader\vbioses
