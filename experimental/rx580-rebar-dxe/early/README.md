@@ -2,13 +2,13 @@
 
 This directory contains an experimental combined path for the ASUS B250 MINING EXPERT and Polaris 10 RX 580 cards:
 
-1. Early DXE request: Rx580ReBarEarlyDxe.c hooks the PCI host-bridge resource-allocation protocol before resource collection. If the live GPU advertises PCIe Resizable BAR capability ID 0x0015 and BAR0's size mask advertises 8 GiB, it selects size exponent 13 so firmware can allocate it at the correct time.
+1. Forced early DXE request: the driver is dispatched immediately before the motherboard's PCI bus driver (`PciBus`) and hooks the PCI host-bridge resource-allocation protocol before resource collection. For AMD `1002:67DF`, it requires a real PCIe Resizable BAR extended capability ID `0x0015` and a BAR0 entry, then requests size exponent 13 (8 GiB) **even when BAR0's advertised-size mask does not include 8 GiB**. This is intentionally out-of-spec experimentation.
 2. Optional late loader fallback: after AtomBIOS ASIC_Init, rebar.inc can inspect the live configuration through ACPI MCFG/ECAM. This write is disabled by default. Set rebar_late=1 in EFI/vbios_loader/vbios_loader.cfg only for a controlled Linux test with pci=realloc already added to the kernel command line. If the live capability advertises 8 GiB for BAR0, it changes only the selector and verifies readback.
 3. Diagnostics: the DXE module writes a volatile runtime variable named RX580ReBarEarlyLog; tools/read_rebar_efi_log.py prints it in Linux. tools/compare_rebar.py compares the loader's 4 KiB PCI config snapshots.
 
 ## Important limit: not yet hardware-verified
 
-Neither code path fabricates a PCIe extended capability or invents device-supported sizes. If a card does not expose ReBAR before enumeration but only exposes it after ASIC_Init, the early DXE path logs that fact; the optional late request remains off until rebar_late=1 is set in vbios_loader.cfg. The late path runs after the motherboard allocator, so Linux must be tested with pci=realloc while preserving all existing kernel parameters. Without that controlled setup, leave rebar_late disabled.
+The forced early path does not fabricate a missing PCIe extended capability or BAR0 entry, and it does not run ASIC_Init. If ReBAR only appears after ASIC_Init, the early driver logs that it cannot find the capability and cannot apply the force. If the capability is present but its mask omits 8 GiB, the driver still attempts selector exponent 13; a successful readback does not prove the hardware can operate at that size. The optional late loader path remains guarded by the advertised-size mask and off by default; set `rebar_late=1` only for a controlled Linux test with `pci=realloc` already added to the existing kernel command line.
 
 If the post-ASIC_Init ECAM snapshot still has no ReBAR capability, or its supported-size mask lacks bit 13, that is evidence of a GPU register/strap initialization difference. Do not compensate with guessed writes.
 
@@ -16,13 +16,13 @@ The early module does not execute AMD ASIC_Init before PCI resource allocation. 
 
 ## Build the DXE module
 
-This is an EDK2 DXE driver, not a standalone EFI application. It must be integrated into the motherboard's DXE volume so it dispatches before PCI bus resource collection. Launching it from GRUB is too late for the early path.
+This is an EDK2 DXE driver, not a standalone EFI application. It must be integrated into the same motherboard DXE firmware volume as the PCI bus driver. Its dependency expression uses `BEFORE gEfiPciBusDriverFileGuid` (file GUID `3C1DE39F-D207-408A-AACC-731CFB7F1DD7`) so the dispatcher places it immediately before PciBus once PciBus is ready to dispatch. Launching it from GRUB is too late for the early path.
 
 On Linux, set EDK2_ROOT to a configured Tianocore edk2 checkout and run:
 
     EDK2_ROOT=~/src/edk2 TOOLCHAIN=GCC5 sh experimental/rx580-rebar-dxe/early/build_in_edk2.sh
 
-The CI workflow also packages the compiled driver as an FFS artifact named rx580-rebar-early-dxe-ffs. That FFS is a driver payload, not a complete motherboard BIOS; integrate it into the DXE volume with UEFITool/UEFIPatch and confirm it dispatches before PCI resource collection. The firmware integration path varies by board. Before flashing, inspect the generated module and integrate it with UEFITool/UEFIPatch following the existing board-specific workflow. Keep a known-good full BIOS backup and an external CH341A programmer available.
+The CI workflow packages the compiled driver as an FFS artifact named `rx580-rebar-force-8gb-dxe-ffs`. That FFS is a driver payload, not a complete motherboard BIOS; integrate it into the DXE volume with UEFITool/UEFIPatch and confirm it dispatches before PCI resource collection. The firmware integration path varies by board. Before flashing, inspect the generated module and integrate it with UEFITool/UEFIPatch following the existing board-specific workflow. Keep a known-good full BIOS backup and an external CH341A programmer available.
 
 ## Log variable
 
@@ -39,9 +39,9 @@ When rebar_late=1 is explicitly configured, the late fallback in rebar.inc reque
 ## Safety and rollback
 
 - The early source targets only AMD device 1002:67DF and BAR0. Other devices are untouched.
-- If 8 GiB is not advertised, the early driver makes no size write.
+- The early forced driver ignores the supported-size mask. If 8 GiB is not advertised, this unsupported selector request may fail, hang the GPU, hang boot, or prevent POST.
 - The volatile UEFI log is diagnostic; its absence is not proof that the card lacks ReBAR.
-- Do not flash the motherboard BIOS until the source is reviewed, built, and the platform's resource windows are verified. If the machine fails to POST, recover from the existing full dump with an external programmer.
+- Treat this forced build as higher risk than normal ReBARUEFI: unsupported BAR-size selection can cause a GPU lockup, boot hang, or failure to POST. Keep the known-good full SPI dump and a working CH341A/external programmer ready before considering a flash. Inspect the FFS and integrated BIOS, and test with one affected RX 580 only.
 - Hardware behavior is not validated in CI. First test one RX 580, not all four at once.
 
 ## Source attribution
