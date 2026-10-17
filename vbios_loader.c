@@ -1432,7 +1432,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
   scan_folder(); scan_meta(); TRACE(L"%d ROM file(s) found", ncand); post_code(0x03);
   ui_init(); TRACE(L"ui ready (%s)", g_ui_gui ? L"gui" : L"text"); post_code(0x04);
   detect_cards(); TRACE(L"%d card(s) detected", g_ncards); post_code(0x05);
-  for (UINTN i = 0; i < g_ncards; i++) rebar_probe(&g_cards[i], L"pre", CFG(S_TRACE));
+  /*
+   * Do not walk the full 4 KiB PCI configuration space through EFI_PCI_IO
+   * before the first status-page draw. Some motherboard PCI I/O implementations
+   * stall on extended-config offsets (>= 0x100), leaving a black screen before
+   * the menu appears. The late ReBAR path uses ECAM directly, and post-init
+   * snapshots remain available for diagnostics. Keep the pre-menu path read-free.
+   */
+  TRACE(L"pre-menu extended PCI config probe skipped (avoid firmware EFI_PCI_IO hang)");
   lg(L"RX 580 vBIOS loader %s: %d card(s), %d ROM file(s) in %s, config %s\n", LOADER_VERSION, g_ncards, ncand, g_romdir ? g_romdir : L"(none)", g_cfg_file_found ? g_cfg_path : L"(none, built-in defaults)");
 
   if (!g_ncards || !ncand) {
