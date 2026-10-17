@@ -1,0 +1,50 @@
+name: RX580 ReBAR DXE build check
+
+on:
+  push:
+    branches:
+      - experiment/rx580-rebar-pre-enumeration
+  pull_request:
+    paths:
+      - "experimental/rx580-rebar-dxe/early/**"
+      - "tools/compare_rebar.py"
+      - "tools/read_rebar_efi_log.py"
+      - ".github/workflows/rx580-rebar-checks.yml"
+  workflow_dispatch:
+
+jobs:
+  build-edk2-driver:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout loader repository
+        uses: actions/checkout@v4
+
+      - name: Checkout EDK2
+        uses: actions/checkout@v4
+        with:
+          repository: tianocore/edk2
+          ref: edk2-stable202502
+          submodules: recursive
+          path: edk2
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential uuid-dev nasm acpica-tools python3-venv
+
+      - name: Build EDK2 BaseTools
+        working-directory: edk2
+        run: make -C BaseTools
+
+      - name: Build DXE module
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd edk2
+          export PACKAGES_PATH="$GITHUB_WORKSPACE/edk2:$GITHUB_WORKSPACE"
+          source edksetup.sh
+          build -p "$GITHUB_WORKSPACE/experimental/rx580-rebar-dxe/early/Rx580ReBarEarly.dsc" -a X64 -t GCC5 -b DEBUG
+
+      - name: Syntax-check diagnostic tools
+        run: python3 -m py_compile tools/compare_rebar.py tools/read_rebar_efi_log.py
+
+      - name: Syntax-check build helper
+        run: sh -n experimental/rx580-rebar-dxe/early/build_in_edk2.sh
