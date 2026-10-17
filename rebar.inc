@@ -110,8 +110,10 @@ static void rebar_request_bar0_8g(CARD *c, const CHAR16 *tag)
     if (capid == RB_REBAR_EXT_CAP_ID) {
       UINT32 first_ctrl = *(volatile UINT32 *)(ea + off + 8);
       UINTN nbars = (first_ctrl >> 5) & 7u;
-      if (nbars < 1) nbars = 1;
-      if (nbars > 6) nbars = 6;
+      if (nbars == 0 || nbars > 6) {
+        lg(L"  [RB-SIZE %s] invalid ReBAR BAR count %d; refusing to write\\n", tag, (UINT32)nbars);
+        return;
+      }
       for (UINTN k = 0; k < nbars; k++) {
         UINTN capoff = off + 4 + 8 * k, ctloff = off + 8 + 8 * k;
         if (ctloff + 4 > 0x1000) break;
